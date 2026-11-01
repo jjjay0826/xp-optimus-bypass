@@ -9,6 +9,8 @@ On the author's laptop (ASUS TUF F15, i5-10300H + GTX 1650, no MUX):
 | Baron 58 (default) | ~20 FPS | 40–45 FPS |
 | A330 (default) | under 19 FPS | 36–41 FPS |
 
+Baron 58 "with" was measured with a pre-release test build, A330 with 0.9.0-beta; similar but not identical conditions. Results following the fixed [benchmark procedure](BENCHMARK.md) will replace these.
+
 > This is a beta tested on **one** laptop. Please report results (good or bad) with your log file.
 
 ## Who it is for
@@ -50,6 +52,12 @@ All measurements (PresentMon, VTune, Nsight, and per-call timings of every test 
    ```
    and every ~10 seconds a line with `FPS ...`.
 
+**Checking the download (optional):** the DLL is not code-signed, so some antivirus tools or Windows SmartScreen may warn about it. You can check it matches the published build: open a command prompt in the folder and run
+```
+certutil -hashfile xp_optimus_bypass.dll SHA256
+```
+The result must equal the value in `SHA256SUMS.txt` (and in the release notes). You can also build it yourself from `src/` (see below).
+
 ## Uninstall
 
 Double-click `uninstall.bat` **in the same folder**, then delete the folder.
@@ -58,7 +66,7 @@ Double-click `uninstall.bat` **in the same folder**, then delete the folder.
 
 | Setting | Values |
 |---|---|
-| `mode` | `auto` (default): only when needed · `on`: always try · `off`: do nothing |
+| `mode` | `auto` (default): only when needed · `on`: always try · `off`: bypass disabled, only measures FPS |
 | `vsync` | `0` (default): no cap, may tear · `1`: no tearing, FPS capped at the screen's refresh rate |
 | `stats` | `1` (default): write FPS and timings to the log every 300 frames |
 
@@ -68,13 +76,14 @@ Restart X-Plane after changing anything.
 
 - **Tearing** with `vsync=0` (the Intel side presents immediately). Use `vsync=1` if it bothers you.
 - Not yet tested: VR, multiple monitors, moving the window between screens, long sessions with many add-ons, other GPUs/drivers.
+- The DLL is **not code-signed**; antivirus or SmartScreen may warn. Check the SHA-256 as described above.
 - Overlays that hook Vulkan (Steam overlay, Overwolf, OBS game capture, RTSS) may not play well with it. If you see crashes, disable them first.
 - A future X-Plane or driver update may break it. Uninstall if X-Plane misbehaves.
 - **Before reporting a bug to Laminar Research, uninstall this layer and reproduce without it.** Laminar did not make this and cannot support it.
 
 ## Reporting results
 
-Please post: laptop model, CPU, GPU, NVIDIA and Intel driver versions, aircraft and location, FPS with `mode=off` vs `mode=auto` at the same spot, and your `xp_optimus_bypass.log`.
+Please follow [BENCHMARK.md](BENCHMARK.md) (about 10 minutes: same scenario with `mode=off` and `mode=auto`) and open a **Benchmark result** issue with both logs. For problems, open a **Bug report** issue. Changes between versions are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Build from source
 

@@ -9,6 +9,8 @@
 | Baron 58（內建） | 約 20 FPS | 40～45 FPS |
 | A330（內建） | 不到 19 FPS | 36～41 FPS |
 
+Baron 58 的「有 layer」是用正式發布前的測試版量的，A330 是用 0.9.0-beta；兩者條件相近但不完全相同。之後會用固定的[測試流程](BENCHMARK.md)重測取代。
+
 > 這是只在**一台**筆電上測過的測試版。不管有沒有效，都歡迎附上 log 回報。
 
 ## 適用對象
@@ -50,6 +52,12 @@
    ```
    之後大約每 10 秒會多一行 `FPS ...`
 
+**檢查下載的檔案（選擇性）**：這個 DLL 沒有數位簽章，有些防毒軟體或 Windows SmartScreen 可能會跳警告。可以確認它和公開的版本一模一樣：在資料夾開命令提示字元，輸入
+```
+certutil -hashfile xp_optimus_bypass.dll SHA256
+```
+結果要跟 `SHA256SUMS.txt`（以及 Release 說明）裡的值相同。也可以用 `src/` 自己編譯（見下方）。
+
 ## 移除
 
 在**同一個資料夾**雙擊 `uninstall.bat`，再刪掉資料夾。
@@ -58,7 +66,7 @@
 
 | 設定 | 值 |
 |---|---|
-| `mode` | `auto`（預設）：需要時才啟用 · `on`：一律嘗試 · `off`：完全不動作 |
+| `mode` | `auto`（預設）：需要時才啟用 · `on`：一律嘗試 · `off`：不啟用，只量測 FPS |
 | `vsync` | `0`（預設）：不限幀，可能撕裂 · `1`：不撕裂，FPS 上限為螢幕更新率 |
 | `stats` | `1`（預設）：每 300 幀把 FPS 和各段時間寫進 log |
 
@@ -66,6 +74,7 @@
 
 ## 已知問題
 
+- DLL **沒有數位簽章**，防毒軟體或 SmartScreen 可能會警告，請照上面的方法檢查 SHA-256
 - `vsync=0` 時會有**畫面撕裂**（Intel 那端是畫好就送）。介意的話用 `vsync=1`
 - 尚未測試：VR、多螢幕、在不同螢幕間拖曳視窗、裝了很多外掛的長時間飛行、其他顯卡與驅動
 - 會掛進 Vulkan 的 overlay（Steam overlay、Overwolf、OBS 遊戲擷取、RTSS）可能不相容。遇到崩潰請先關掉它們
@@ -74,7 +83,7 @@
 
 ## 回報結果
 
-請附上：筆電型號、CPU、顯卡、NVIDIA 與 Intel 驅動版本、機型與地點、同一地點 `mode=off` 和 `mode=auto` 的 FPS，以及 `xp_optimus_bypass.log`。
+請照 [BENCHMARK.md](BENCHMARK.md) 的流程（約 10 分鐘：同一情境分別用 `mode=off` 和 `mode=auto`），在 GitHub 開一個 **Benchmark result** issue 並附上兩份 log。遇到問題請開 **Bug report** issue。各版本的變更在 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 從原始碼編譯
 

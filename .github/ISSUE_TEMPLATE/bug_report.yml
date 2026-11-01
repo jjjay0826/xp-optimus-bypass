@@ -1,0 +1,30 @@
+name: Bug report
+description: Crash, black screen, wrong image, X-Plane not starting, etc.
+title: "[Bug] <short description>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "First check whether it also happens with `mode=off` and after running `uninstall.bat`. If it still happens without the layer, it is not caused by it — please report it to Laminar Research instead."
+  - type: input
+    id: version
+    attributes: {label: XP Optimus Bypass version, placeholder: "0.9.1-beta"}
+    validations: {required: true}
+  - type: input
+    id: system
+    attributes: {label: "Laptop, CPU, NVIDIA GPU + driver, Intel iGPU + driver"}
+    validations: {required: true}
+  - type: dropdown
+    id: without
+    attributes:
+      label: Does it also happen with mode=off?
+      options: ["No, only with mode=auto/on", "Yes, also with mode=off", "Not tested"]
+    validations: {required: true}
+  - type: textarea
+    id: what
+    attributes: {label: What happened and when, description: "At startup, while loading, in flight, on exit... Steps to reproduce if you know them."}
+    validations: {required: true}
+  - type: textarea
+    id: logs
+    attributes: {label: Logs, description: "Attach xp_optimus_bypass.log and X-Plane's Log.txt (from the X-Plane 12 folder; copy it before restarting X-Plane)."}
+    validations: {required: true}

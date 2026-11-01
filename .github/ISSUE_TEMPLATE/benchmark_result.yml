@@ -1,0 +1,51 @@
+name: Benchmark result
+description: Share off/on FPS from the fixed benchmark procedure (helpful even if it did NOT help)
+title: "[Result] <laptop model>: <off FPS> -> <on FPS>"
+labels: ["benchmark"]
+body:
+  - type: markdown
+    attributes:
+      value: "Please follow [BENCHMARK.md](https://github.com/jjjay0826/xp-optimus-bypass/blob/main/BENCHMARK.md) first. Results where the layer does not help are just as useful."
+  - type: input
+    id: version
+    attributes: {label: XP Optimus Bypass version, placeholder: "0.9.1-beta"}
+    validations: {required: true}
+  - type: input
+    id: laptop
+    attributes: {label: Laptop model, placeholder: "ASUS TUF Gaming F15 FX506LHB"}
+    validations: {required: true}
+  - type: input
+    id: cpu
+    attributes: {label: CPU, placeholder: "Intel Core i5-10300H"}
+    validations: {required: true}
+  - type: input
+    id: gpu
+    attributes: {label: NVIDIA GPU and driver version, placeholder: "GTX 1650 4 GB, 595.97"}
+    validations: {required: true}
+  - type: input
+    id: igpu
+    attributes: {label: Intel iGPU and driver version, placeholder: "UHD Graphics, 31.0.101.1999"}
+  - type: input
+    id: windows
+    attributes: {label: Windows version, placeholder: "Windows 11 24H2"}
+  - type: input
+    id: screen
+    attributes: {label: Screen resolution and refresh rate, placeholder: "1920x1080, 144 Hz"}
+  - type: input
+    id: mux
+    attributes: {label: MUX switch, description: "None / present (which mode) / don't know"}
+  - type: input
+    id: aircraft
+    attributes: {label: Aircraft, placeholder: "Baron 58"}
+    validations: {required: true}
+  - type: input
+    id: fps_off
+    attributes: {label: Median FPS with mode=off (second minute)}
+    validations: {required: true}
+  - type: input
+    id: fps_on
+    attributes: {label: Median FPS with mode=auto (second minute)}
+    validations: {required: true}
+  - type: textarea
+    id: notes
+    attributes: {label: Notes, description: "Stutters, tearing, anything unusual. Attach both log files and a screenshot of your graphics settings."}

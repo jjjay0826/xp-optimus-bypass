@@ -36,7 +36,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.0-beta"
+#define XPOB_VERSION "0.9.1-beta"
 
 // ================================================================ config & log
 
@@ -153,6 +153,14 @@ static bool windowOnIntel(HWND h) {
 class Worker {
 public:
     Worker() : th_([this] { run(); }) {}
+    ~Worker() {  // finishes queued work, then stops and joins the thread
+        {
+            std::lock_guard<std::mutex> lk(m_);
+            stop_ = true;
+        }
+        cv_.notify_all();
+        if (th_.joinable()) th_.join();
+    }
     void push(std::function<void()> fn) {
         {
             std::lock_guard<std::mutex> lk(m_);
@@ -173,7 +181,8 @@ private:
             std::function<void()> fn;
             {
                 std::unique_lock<std::mutex> lk(m_);
-                cv_.wait(lk, [&] { return !q_.empty(); });
+                cv_.wait(lk, [&] { return !q_.empty() || stop_; });
+                if (q_.empty()) return;  // stop requested and nothing left to do
                 fn = std::move(q_.front());
                 q_.pop_front();
             }
@@ -189,7 +198,8 @@ private:
     std::condition_variable cv_, done_;
     std::deque<std::function<void()>> q_;
     uint64_t pushed_ = 0, finished_ = 0;
-    std::thread th_;
+    bool stop_ = false;
+    std::thread th_;  // declared last: starts after the other members exist
 };
 
 // ================================================================ dispatch data
@@ -215,6 +225,10 @@ struct DevData {
     Worker* worker = nullptr;
     std::mutex semLock;
     std::unordered_multiset<VkSemaphore> pendingWaits;  // X-Plane semaphores a queued frame still waits on
+    // FPS stats when the bypass is not used (mode=off, or not applicable) — X-Plane's main thread only
+    uint64_t pFrames = 0;
+    double pLast = 0, pSumInterval = 0, pSumPresent = 0, pMaxInterval = 0, pMaxPresent = 0;
+    int pHitches = 0;
 
 #define DFN(n) PFN_##n n = nullptr
     DFN(vkDestroyDevice); DFN(vkGetDeviceQueue); DFN(vkQueueSubmit); DFN(vkQueueSubmit2); DFN(vkQueueSubmit2KHR);
@@ -389,6 +403,18 @@ static IntelCtx* intelCreate(HWND hwnd) {
     if (c->vkCreateCommandPool(c->dev, &pci, nullptr, &c->pool) != VK_SUCCESS) return fail("command pool failed");
     logf("Intel: device ready (queue family %u)", c->fam);
     return c;
+}
+
+static void intelDestroy(IntelCtx* c) {
+    if (!c) return;
+    if (c->dev) {
+        c->vkDeviceWaitIdle(c->dev);
+        if (c->pool) c->vkDestroyCommandPool(c->dev, c->pool, nullptr);
+        c->vkDestroyDevice(c->dev, nullptr);
+    }
+    if (c->surface) c->vkDestroySurfaceKHR(c->inst, c->surface, nullptr);
+    if (c->inst) c->vkDestroyInstance(c->inst, nullptr);
+    delete c;
 }
 
 // ================================================================ the swapchain X-Plane sees
@@ -1061,6 +1087,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_CreateDevice(VkPhysicalDevice physicalD
     std::vector<const char*> exts(pCreateInfo->ppEnabledExtensionNames,
                                   pCreateInfo->ppEnabledExtensionNames + pCreateInfo->enabledExtensionCount);
     uint32_t fam = UINT32_MAX, idx = 0;
+    if (g_isXPlane && !g_internalCreate && g_mode == MODE_OFF)
+        logf("mode=off: bypass disabled, only measuring FPS");
     if (g_isXPlane && !g_internalCreate && g_mode != MODE_OFF && setLoaderData) {
         auto getProps = (PFN_vkGetPhysicalDeviceProperties)gipa(inst, "vkGetPhysicalDeviceProperties");
         VkPhysicalDeviceProperties pr{};
@@ -1167,8 +1195,28 @@ static VKAPI_ATTR void VKAPI_CALL XP_DestroyDevice(VkDevice device, const VkAllo
         if (it != g_dev.end()) { d = it->second; g_dev.erase(it); }
     }
     if (!d) return;
-    if (d->worker) d->worker->flush();
+    if (d->worker) {
+        d->worker->flush();
+        // swapchains X-Plane did not destroy itself
+        std::vector<VSwap*> left;
+        {
+            std::lock_guard<std::mutex> lk(g_vsLock);
+            for (auto it = g_vs.begin(); it != g_vs.end();) {
+                if (it->second->d == d) { left.push_back(it->second); it = g_vs.erase(it); }
+                else ++it;
+            }
+        }
+        for (VSwap* vs : left) destroyVSwap(vs);
+        delete d->worker;  // stops and joins the worker thread
+        d->worker = nullptr;
+    }
+    if (d->active && g_intel) {
+        intelDestroy(g_intel);
+        g_intel = nullptr;
+        logf("bypass shut down cleanly");
+    }
     if (d->vkDestroyDevice) d->vkDestroyDevice(device, pAllocator);
+    delete d;
 }
 
 // ---- queue operations: only need care when X-Plane re-signals a semaphore a queued frame still waits on
@@ -1320,7 +1368,31 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_QueuePresentKHR(VkQueue queue, const Vk
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
     if (d->active && pi->swapchainCount == 1)
         if (VSwap* vs = vsOf(pi->pSwapchains[0])) return vPresent(vs, pi);
-    return d->vkQueuePresentKHR(queue, pi);
+    if (!g_isXPlane || !g_stats || d->internal) return d->vkQueuePresentKHR(queue, pi);
+
+    // bypass not in use: still measure, so mode=off and mode=auto runs can be compared with the same tool
+    double t0 = nowMs();
+    VkResult r = d->vkQueuePresentKHR(queue, pi);
+    double block = nowMs() - t0;
+    if (d->pFrames > 0) {
+        double iv = t0 - d->pLast;
+        d->pSumInterval += iv;
+        if (iv > d->pMaxInterval) d->pMaxInterval = iv;
+        if (iv > 50.0) d->pHitches++;
+    }
+    d->pLast = t0;
+    d->pFrames++;
+    d->pSumPresent += block;
+    if (block > d->pMaxPresent) d->pMaxPresent = block;
+    if (d->pFrames % 300 == 0) {
+        double iv = d->pSumInterval / 300.0;
+        logf("FPS %.1f | bypass NOT active: NVIDIA present blocked X-Plane avg %.2f ms (max %.1f ms)",
+             iv > 0 ? 1000.0 / iv : 0.0, d->pSumPresent / 300.0, d->pMaxPresent);
+        logf("    worst frame %.1f ms, frames over 50 ms: %d", d->pMaxInterval, d->pHitches);
+        d->pSumInterval = d->pSumPresent = d->pMaxInterval = d->pMaxPresent = 0;
+        d->pHitches = 0;
+    }
+    return r;
 }
 
 // ---- other functions that take a swapchain: never hand the fake handle to the driver

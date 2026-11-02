@@ -99,6 +99,24 @@ Hitch check (A330, release build, ~2 min of flight after loading, 300-frame wind
 Intel acquire/present maximum below 0.3 ms, so those hitches came from X-Plane's own CPU-side frame time, not from the
 GPU or the presentation path. (At ~20 FPS every frame already took ~50 ms, so such hitches were not noticeable.)
 
+## 4b. Fixed benchmark (0.9.1-beta)
+
+Procedure: [BENCHMARK.md](../BENCHMARK.md) — default Baron 58 at KSEA 16L, clear weather, 12:00, cockpit view, no input.
+Values from the layer's own log (300-frame windows).
+
+| | `mode=off` | `mode=auto` (bypass active) |
+|---|---|---|
+| FPS per window | 21.1, 22.2, 21.3 | 33.7, 36.3, 35.4, 34.4 |
+| Median | **21.3** | **34.9** |
+| Frames over 50 ms per window | 63, 37, 54 | 4, 0, 1, 0 |
+| NVIDIA present blocked X-Plane (avg) | 20.4–21.4 ms | — (X-Plane waited 0.00 ms; Intel present 0.01–0.02 ms) |
+| GeForce frame + copy after present (avg) | — | 11.3–11.6 ms |
+
+GTX 1650 utilization in Task Manager was ~52%. With the bypass on, the same spot with FSR "performance" instead of
+"ultra" gave a median of 36.8 FPS (12 windows), and object density at minimum 39.4 FPS (10 windows); in both runs FPS
+drifted up to 41–47 in the last windows. So at KSEA neither the GPU nor object density is the main limit; it is most
+likely X-Plane's main-thread CPU work and its own waiting for the GPU.
+
 ## 5. Interpretation
 
 - Row 6 shows the throughput of NVIDIA's Optimus present path under load: acquire + present ≈ 47 ms per frame on a

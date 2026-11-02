@@ -4,12 +4,15 @@ A small Vulkan layer that can raise X-Plane 12's frame rate a lot on **Optimus l
 
 On the author's laptop (ASUS TUF F15, i5-10300H + GTX 1650, no MUX):
 
-| Aircraft | Without the layer | With the layer |
+| Test | Without the layer | With the layer |
 |---|---|---|
-| Baron 58 (default) | ~20 FPS | 40–45 FPS |
-| A330 (default) | under 19 FPS | 36–41 FPS |
+| **[Benchmark](BENCHMARK.md): Baron 58 at KSEA 16L (0.9.1-beta)** | **21.3 FPS** | **34.9 FPS** |
+| Frames over 50 ms (stutter), per 300 frames, same test | 37–63 | 0–4 |
+| Baron 58, free flight (pre-release test build) | ~20 FPS | 40–45 FPS |
+| A330, free flight (0.9.0-beta) | under 19 FPS | 36–41 FPS |
 
-Baron 58 "with" was measured with a pre-release test build, A330 with 0.9.0-beta; similar but not identical conditions. Results following the fixed [benchmark procedure](BENCHMARK.md) will replace these.
+Benchmark values are medians of the 300-frame windows in the log. KSEA (Seattle) is a dense, CPU-heavy area; with the
+layer on, the remaining limit there is X-Plane's own CPU work (lowering FSR or object density only gained 2–3 FPS).
 
 > This is a beta tested on **one** laptop. Please report results (good or bad) with your log file.
 

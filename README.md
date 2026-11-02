@@ -66,7 +66,7 @@ Double-click `uninstall.bat` **in the same folder**, then delete the folder.
 
 | Setting | Values |
 |---|---|
-| `mode` | `auto` (default): only when needed · `on`: always try · `off`: bypass disabled, only measures FPS |
+| `mode` | `auto` (default): only when needed · `on`: always try · `off`: bypass disabled (from 0.9.1: still logs FPS, for comparison) |
 | `vsync` | `0` (default): no cap, may tear · `1`: no tearing, FPS capped at the screen's refresh rate |
 | `stats` | `1` (default): write FPS and timings to the log every 300 frames |
 
@@ -77,6 +77,9 @@ Restart X-Plane after changing anything.
 - **Tearing** with `vsync=0` (the Intel side presents immediately). Use `vsync=1` if it bothers you.
 - Not yet tested: VR, multiple monitors, moving the window between screens, long sessions with many add-ons, other GPUs/drivers.
 - The DLL is **not code-signed**; antivirus or SmartScreen may warn. Check the SHA-256 as described above.
+- Like every Vulkan layer, it is registered for **all Vulkan programs** of your Windows user. It does nothing outside
+  `X-Plane.exe`, but online games with **anti-cheat** may object to an unsigned DLL. Run `uninstall.bat` before playing
+  such games in Vulkan mode (or use their DirectX mode).
 - Overlays that hook Vulkan (Steam overlay, Overwolf, OBS game capture, RTSS) may not play well with it. If you see crashes, disable them first.
 - A future X-Plane or driver update may break it. Uninstall if X-Plane misbehaves.
 - **Before reporting a bug to Laminar Research, uninstall this layer and reproduce without it.** Laminar did not make this and cannot support it.

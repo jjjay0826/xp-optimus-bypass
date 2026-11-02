@@ -66,7 +66,7 @@ certutil -hashfile xp_optimus_bypass.dll SHA256
 
 | 設定 | 值 |
 |---|---|
-| `mode` | `auto`（預設）：需要時才啟用 · `on`：一律嘗試 · `off`：不啟用，只量測 FPS |
+| `mode` | `auto`（預設）：需要時才啟用 · `on`：一律嘗試 · `off`：不啟用（0.9.1 起仍會記錄 FPS，方便比較） |
 | `vsync` | `0`（預設）：不限幀，可能撕裂 · `1`：不撕裂，FPS 上限為螢幕更新率 |
 | `stats` | `1`（預設）：每 300 幀把 FPS 和各段時間寫進 log |
 
@@ -77,6 +77,7 @@ certutil -hashfile xp_optimus_bypass.dll SHA256
 - DLL **沒有數位簽章**，防毒軟體或 SmartScreen 可能會警告，請照上面的方法檢查 SHA-256
 - `vsync=0` 時會有**畫面撕裂**（Intel 那端是畫好就送）。介意的話用 `vsync=1`
 - 尚未測試：VR、多螢幕、在不同螢幕間拖曳視窗、裝了很多外掛的長時間飛行、其他顯卡與驅動
+- 跟所有 Vulkan layer 一樣，它是登記給你 Windows 帳號下的**所有 Vulkan 程式**。在 `X-Plane.exe` 以外什麼都不做，但有**反作弊**的線上遊戲可能不接受沒簽章的 DLL。用 Vulkan 模式玩這類遊戲前請先執行 `uninstall.bat`（或改用遊戲的 DirectX 模式）
 - 會掛進 Vulkan 的 overlay（Steam overlay、Overwolf、OBS 遊戲擷取、RTSS）可能不相容。遇到崩潰請先關掉它們
 - X-Plane 或驅動更新後可能失效，X-Plane 異常時請先移除
 - **向 Laminar Research 回報 bug 之前，請先移除這個 layer，確認沒裝也會發生。** 這不是 Laminar 做的，他們沒辦法支援

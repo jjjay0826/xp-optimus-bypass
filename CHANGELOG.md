@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.1-beta — 2026-11-01
+## 0.9.1-beta — not released yet (code on `main`)
 
 - **Clean shutdown:** when X-Plane destroys its Vulkan device, the worker thread is stopped and joined and the Intel
   Vulkan device, surface and instance are released. Previously they were left running until the process ended, which

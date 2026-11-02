@@ -8,7 +8,7 @@ body:
       value: "First check whether it also happens with `mode=off` and after running `uninstall.bat`. If it still happens without the layer, it is not caused by it — please report it to Laminar Research instead."
   - type: input
     id: version
-    attributes: {label: XP Optimus Bypass version, placeholder: "0.9.1-beta"}
+    attributes: {label: XP Optimus Bypass version, placeholder: "0.9.0-beta"}
     validations: {required: true}
   - type: input
     id: system

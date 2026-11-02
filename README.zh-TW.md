@@ -86,6 +86,14 @@ certutil -hashfile xp_optimus_bypass.dll SHA256
 
 請照 [BENCHMARK.md](BENCHMARK.md) 的流程（約 10 分鐘：同一情境分別用 `mode=off` 和 `mode=auto`），在 GitHub 開一個 **Benchmark result** issue 並附上兩份 log。遇到問題請開 **Bug report** issue。各版本的變更在 [CHANGELOG.md](CHANGELOG.md)。
 
+## 未來可能的方向
+
+- **其他 Vulkan 遊戲**：這個 layer 大部分跟遊戲無關（目前只在 `X-Plane.exe` 裡作用）。還不知道其他遊戲是不是也有同樣慢的 Optimus 輸出路徑；如果有，可能會推出通用版（逐款遊戲手動開啟）
+- **DirectX 9～11 遊戲**：也許能搭配 DXVK（把 DirectX 轉成 Vulkan）一起使用，尚未測試
+- 有反作弊的線上遊戲不會支援
+
+沒有保證也沒有時間表，取決於測試結果。如果你知道其他 Vulkan 遊戲在這類筆電上也卡在低 FPS，歡迎開 issue 告訴我。
+
 ## 從原始碼編譯
 
 ```

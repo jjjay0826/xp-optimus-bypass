@@ -88,6 +88,17 @@ Restart X-Plane after changing anything.
 
 Please follow [BENCHMARK.md](BENCHMARK.md) (about 10 minutes: same scenario with `mode=off` and `mode=auto`) and open a **Benchmark result** issue with both logs. For problems, open a **Bug report** issue. Changes between versions are in [CHANGELOG.md](CHANGELOG.md).
 
+## Possible future work
+
+- **Other Vulkan games:** the layer is mostly game-independent (right now it only acts inside `X-Plane.exe`). Whether
+  other games suffer from the same slow Optimus present path is not known yet; if they do, a general version (opt-in
+  per game) may follow.
+- **DirectX 9–11 games:** might work through DXVK (DirectX → Vulkan) together with this layer. Untested.
+- Online games with anti-cheat will not be supported.
+
+No promises or dates — it depends on test results. If you know another Vulkan game that is stuck at low FPS on such a
+laptop, please open an issue.
+
 ## Build from source
 
 ```

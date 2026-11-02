@@ -8,10 +8,11 @@ On the author's laptop (ASUS TUF F15, i5-10300H + GTX 1650, no MUX):
 |---|---|---|
 | **[Benchmark](BENCHMARK.md): Baron 58 at KSEA 16L (0.9.1-beta)** | **21.3 FPS** | **34.9 FPS** |
 | Frames over 50 ms (stutter), per 300 frames, same test | 37–63 | 0–4 |
-| Baron 58, free flight (pre-release test build) | ~20 FPS | 40–45 FPS |
-| A330, free flight (0.9.0-beta) | under 19 FPS | 36–41 FPS |
+| Baron 58 at RCYU (Hualien), local midnight (pre-release test build) | ~20 FPS | 40–45 FPS |
+| A330 at RCYU (Hualien), local midnight (0.9.0-beta) | under 19 FPS | 36–41 FPS |
 
-Benchmark values are medians of the 300-frame windows in the log. KSEA (Seattle) is a dense, CPU-heavy area; with the
+Benchmark values are medians of the 300-frame windows in the log. The RCYU rows (small airport, night) are lighter
+scenes than the KSEA benchmark at noon, so they are not directly comparable with it. KSEA (Seattle) is a dense, CPU-heavy area; with the
 layer on, the remaining limit there is X-Plane's own CPU work (lowering FSR or object density only gained 2–3 FPS).
 
 > This is a beta tested on **one** laptop. Please report results (good or bad) with your log file.

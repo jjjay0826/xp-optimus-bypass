@@ -86,8 +86,8 @@ Notes:
 
 | Aircraft | Without (NVIDIA Optimus path) | With the layer |
 |---|---|---|
-| Baron 58, similar conditions to rows 1–6 (not the identical spot) | ~20 FPS | 40.1–45.3 FPS (mostly 42–43; v7 test build) |
-| A330 | under 19 FPS (previous day) | 31.8–45.8 FPS, mostly 36–41 (release build) |
+| Baron 58 at RCYU (Hualien), local midnight | ~20 FPS | 40.1–45.3 FPS (mostly 42–43; v7 test build) |
+| A330 at RCYU (Hualien), local midnight | under 19 FPS (previous day) | 31.8–45.8 FPS, mostly 36–41 (release build) |
 
 Control test (A330): with the layer set to `mode=off` and the Steam overlay disabled as well, FPS did **not** improve
 (Overwolf, OBS, RTSS and MSI Afterburner were already not running in all tests). Third-party overlays are therefore not

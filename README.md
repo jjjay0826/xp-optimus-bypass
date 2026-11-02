@@ -2,6 +2,11 @@
 
 A small Vulkan layer that can raise X-Plane 12's frame rate a lot on **Optimus laptops without a MUX switch**, by sending finished frames to the screen through the Intel iGPU yourself instead of through NVIDIA's built-in Optimus path.
 
+### Download
+
+**Current version: 0.9.1-beta** → **[Download XP_Optimus_Bypass_v0.9.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1-beta/XP_Optimus_Bypass_v0.9.1-beta.zip)**, then follow [Install](#install).
+Changes: [CHANGELOG](CHANGELOG.md) · checksums and older versions: [Releases](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [中文說明](README.zh-TW.md)
+
 On the author's laptop (ASUS TUF F15, i5-10300H + GTX 1650, no MUX):
 
 | Test | Without the layer | With the layer |

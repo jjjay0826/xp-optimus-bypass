@@ -2,6 +2,11 @@
 
 一個小型 Vulkan layer。在**沒有 MUX 開關的 Optimus 筆電**上，它改由程式自己透過 Intel 內顯把畫面送上螢幕，不走 NVIDIA 內建的 Optimus 輸出路徑，可以大幅提高 X-Plane 12 的 FPS。
 
+### 下載
+
+**目前版本：0.9.1-beta** → **[下載 XP_Optimus_Bypass_v0.9.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1-beta/XP_Optimus_Bypass_v0.9.1-beta.zip)**，然後照下方的[安裝](#安裝)步驟。
+各版本變更：[CHANGELOG](CHANGELOG.md) · 校驗碼和舊版本：[Releases](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [English](README.md)
+
 作者的筆電（ASUS TUF F15，i5-10300H + GTX 1650，無 MUX）：
 
 | 測試 | 沒有 layer | 有 layer |

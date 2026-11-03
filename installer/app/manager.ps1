@@ -60,7 +60,7 @@ $languageChoice.DropDownStyle = 'DropDownList'
 $languageChoice.SelectedIndex = 0
 if ($script:Language -eq 'zh-TW') { $languageChoice.SelectedIndex = 1 }
 $form.Controls.Add($languageChoice)
-$subtitle = Add-Label (T '安裝介面 1.5  ·  核心 DLL 0.9.1.1-beta  ·  目前 Windows 使用者') 26 58 710 28
+$subtitle = Add-Label (T '安裝介面 0.9.2  ·  核心 DLL 0.9.2  ·  目前 Windows 使用者') 26 58 710 28
 $stateLabel = Add-Label '' 26 91 710 28
 $null = Add-Label (T '1. X-Plane 安裝位置') 26 127 710 26
 $pathCombo = New-Object Windows.Forms.ComboBox

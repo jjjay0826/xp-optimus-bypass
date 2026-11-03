@@ -8,7 +8,7 @@ try {
     if (Test-Path -LiteralPath $cfg) { $exe = Resolve-XPlane (Get-Content -LiteralPath $cfg -Encoding UTF8 -TotalCount 1) }
     if (-not $exe) {
         [void][Windows.Forms.MessageBox]::Show((T 'X-Plane 路徑失效，請在接下來的管理視窗重新選擇路徑並按「安裝 / 套用」。'), 'XP Optimus Bypass')
-        Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $env:LOCALAPPDATA 'XP Optimus Bypass Installer\1.5\app\manager.ps1') + '"')
+        Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $env:LOCALAPPDATA 'XP Optimus Bypass Installer\0.9.2\app\manager.ps1') + '"')
         exit 1
     }
     if (Get-Process -Name 'X-Plane' -ErrorAction SilentlyContinue) { throw (T 'X-Plane 已在執行，請使用目前的遊戲視窗。') }

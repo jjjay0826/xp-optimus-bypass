@@ -1,5 +1,5 @@
 ﻿$script:ProductName = 'XP Optimus Bypass'
-$script:InstallerVersion = '1.5'
+$script:InstallerVersion = '0.9.2'
 $script:InstallRoot = Join-Path $env:LOCALAPPDATA 'Programs\XP Optimus Bypass'
 $script:AppDir = Join-Path $script:InstallRoot 'app'
 $script:LayerKey = 'HKCU:\Software\Khronos\Vulkan\ImplicitLayers'
@@ -133,7 +133,7 @@ function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath
         $oldIni = Join-Path $script:AppDir 'xp_optimus_bypass.ini'
         if (Test-Path -LiteralPath $oldIni) { Copy-Item -LiteralPath $oldIni -Destination $stage -Force }
         Set-Content -LiteralPath (Join-Path $stage 'xplane_path.txt') -Value $exe -Encoding UTF8
-        @{mode=$Mode; xplane=$exe; desktopShortcut=$DesktopShortcut; installerVersion=$script:InstallerVersion; dllVersion='0.9.1.1-beta'} |
+        @{mode=$Mode; xplane=$exe; desktopShortcut=$DesktopShortcut; installerVersion=$script:InstallerVersion; dllVersion='0.9.2'} |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'install-state.json') -Encoding UTF8
         if (Test-Path -LiteralPath $script:AppDir) {
             Move-Item -LiteralPath $script:AppDir -Destination $backup
@@ -162,7 +162,7 @@ function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath
         }
         New-Item -Path $script:UninstallKey -Force | Out-Null
         $uninstall = '"' + (Join-Path $PSHOME 'powershell.exe') + '" -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $SourceApp 'manager.ps1') + '" -Uninstall'
-        $values = @{DisplayName='XP Optimus Bypass'; DisplayVersion=('0.9.1.1-beta (Installer ' + $script:InstallerVersion + ')'); InstallLocation=$script:InstallRoot;
+        $values = @{DisplayName='XP Optimus Bypass'; DisplayVersion=('0.9.2 (Installer ' + $script:InstallerVersion + ')'); InstallLocation=$script:InstallRoot;
             UninstallString=$uninstall; DisplayIcon=($exe + ',0'); Publisher='XP Optimus Bypass'; InstallDate=(Get-Date -Format 'yyyyMMdd')}
         foreach ($name in $values.Keys) { New-ItemProperty -LiteralPath $script:UninstallKey -Name $name -Value $values[$name] -PropertyType String -Force | Out-Null }
         foreach ($name in @('NoModify', 'NoRepair')) { New-ItemProperty -LiteralPath $script:UninstallKey -Name $name -Value 1 -PropertyType DWord -Force | Out-Null }

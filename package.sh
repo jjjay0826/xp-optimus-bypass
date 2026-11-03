@@ -3,7 +3,7 @@
 set -eu
 VER=${1:?usage: sh package.sh <version>}
 case "$VER" in ''|*[!A-Za-z0-9._-]*) echo 'Invalid version' >&2; exit 1;; esac
-OUT="$PWD/XP_Optimus_Bypass_v${VER}_installer-r1.zip"
+OUT="$PWD/XP_Optimus_Bypass_v${VER}.zip"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 D="$TMP/XP_Optimus_Bypass"

@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
-$cache = Join-Path $env:LOCALAPPDATA 'XP Optimus Bypass Installer\1.5'
+$cache = Join-Path $env:LOCALAPPDATA 'XP Optimus Bypass Installer\0.9.2'
 $diagnostics = Join-Path $env:LOCALAPPDATA 'XP Optimus Bypass Installer\installer-error.log'
 try {
     Add-Type -AssemblyName System.Windows.Forms

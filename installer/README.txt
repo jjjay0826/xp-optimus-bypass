@@ -1,4 +1,4 @@
-﻿XP Optimus Bypass | DLL 0.9.1.1-beta | Installer 1.5
+﻿XP Optimus Bypass | DLL 0.9.2 | Installer 0.9.2
 https://github.com/jjjay0826/xp-optimus-bypass
 
 ENGLISH
@@ -16,7 +16,7 @@ The actual root xp_optimus_bypass.log is created by the rebuilt DLL and flushed 
 FPS records are produced every 300 frames, not every second. Save logs before restarting.
 launcher-diagnostics.log records launch requests, registration and missing DLL output.
 The extracted download folder does NOT contain a placeholder log.
-Uninstall keeps reusable installer sources under %LOCALAPPDATA%\XP Optimus Bypass Installer\1.5.
+Uninstall keeps reusable installer sources under %LOCALAPPDATA%\XP Optimus Bypass Installer\0.9.2.
 Windows/X-Plane runtime verification remains required. This update changes logging code.
 
 繁體中文

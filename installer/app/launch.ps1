@@ -1,0 +1,61 @@
+﻿$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+try {
+    . (Join-Path $PSScriptRoot 'i18n.ps1')
+    . (Join-Path $PSScriptRoot 'discovery.ps1')
+    $cfg = Join-Path $PSScriptRoot 'xplane_path.txt'
+    $exe = $null
+    if (Test-Path -LiteralPath $cfg) { $exe = Resolve-XPlane (Get-Content -LiteralPath $cfg -Encoding UTF8 -TotalCount 1) }
+    if (-not $exe) {
+        [void][Windows.Forms.MessageBox]::Show((T 'X-Plane 路徑失效，請在接下來的管理視窗重新選擇路徑並按「安裝 / 套用」。'), 'XP Optimus Bypass')
+        Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $env:LOCALAPPDATA 'XP Optimus Bypass Installer\1.5\app\manager.ps1') + '"')
+        exit 1
+    }
+    if (Get-Process -Name 'X-Plane' -ErrorAction SilentlyContinue) { throw (T 'X-Plane 已在執行，請使用目前的遊戲視窗。') }
+    $root = Split-Path -Parent $PSScriptRoot
+    $rootLog = Join-Path $root 'xp_optimus_bypass.log'
+    $diagnostics = Join-Path $root 'launcher-diagnostics.log'
+    function Write-Diagnostic([string]$Text) {
+        ('[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Text) | Add-Content -LiteralPath $diagnostics -Encoding UTF8
+    }
+    Write-Diagnostic ('Launch request: ' + $exe)
+    Write-Diagnostic ('Expected DLL: ' + (Join-Path $PSScriptRoot 'xp_optimus_bypass.dll'))
+    Write-Diagnostic ('Actual DLL log: ' + $rootLog)
+    if ($env:XP_OPTIMUS_BYPASS_DISABLE -eq '1') {
+        throw 'XP_OPTIMUS_BYPASS_DISABLE=1 is set. Remove that environment override to load the layer. / 請先移除停用 layer 的環境變數。'
+    }
+    $layerKey = 'HKCU:\Software\Khronos\Vulkan\ImplicitLayers'
+    if (-not (Test-Path -LiteralPath $layerKey)) { throw 'No Vulkan layer registration. Install / Apply first. / 請先安裝或套用。' }
+    $key = Get-Item -LiteralPath $layerKey
+    $registered = @($key.GetValueNames() | Where-Object {
+        $_ -in @((Join-Path $PSScriptRoot 'xp_optimus_bypass.json'), (Join-Path $PSScriptRoot 'xp_optimus_bypass_global.json')) -and $key.GetValue($_) -eq 0
+    })
+    if ($registered.Count -eq 0) { throw 'This installed DLL is not registered. Click Install / Apply. / 此 DLL 未登記，請先套用。' }
+    Write-Diagnostic ('Registered manifest: ' + ($registered -join ', '))
+    $env:XP_OPTIMUS_BYPASS_LOG = $rootLog
+    $env:XP_OPTIMUS_BYPASS_ENABLE = '1'
+    $startedAt = Get-Date
+    $process = Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) -PassThru -ErrorAction Stop
+    Write-Diagnostic ('Started process ID: ' + $process.Id)
+    # This launcher runs separately from the GUI. Allow startup time, then report missing DLL output.
+    $written = $false
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        if (Test-Path -LiteralPath $rootLog) {
+            $info = Get-Item -LiteralPath $rootLog
+            if ($info.Length -gt 0 -and $info.LastWriteTime -ge $startedAt.AddSeconds(-1)) { $written = $true; break }
+        }
+        $process.Refresh()
+        if ($process.HasExited) { break }
+    }
+    if ($written) { Write-Diagnostic 'DLL log is receiving records.' }
+    else {
+        $loaded = 'unknown'
+        try { $loaded = [string](@($process.Modules | Where-Object { $_.FileName -ieq (Join-Path $PSScriptRoot 'xp_optimus_bypass.dll') }).Count -gt 0) } catch { }
+        Write-Diagnostic ('No fresh DLL log. Process exited: ' + $process.HasExited + '; expected DLL loaded: ' + $loaded)
+        [void][Windows.Forms.MessageBox]::Show(('No fresh DLL log was detected. This does not prove the bypass is active.' + "`r`n" + '未收到 DLL 新紀錄，請查看載入診斷。' + "`r`n" + $diagnostics), 'XP Optimus Bypass', 'OK', 'Warning')
+    }
+} catch {
+    [void][Windows.Forms.MessageBox]::Show(((T '無法啟動 X-Plane：') + $_.Exception.Message), 'XP Optimus Bypass', 'OK', 'Error')
+    exit 1
+}

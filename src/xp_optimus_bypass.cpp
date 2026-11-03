@@ -24,6 +24,7 @@
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
+#include <share.h>
 #include <cstring>
 #include <deque>
 #include <functional>
@@ -46,6 +47,7 @@ static bool g_vsync = false;
 static bool g_stats = true;
 static bool g_isXPlane = false;
 static std::wstring g_dir;
+static std::wstring g_logPath;
 static std::once_flag g_initOnce;
 static std::mutex g_logLock;
 static LARGE_INTEGER g_freq;
@@ -56,8 +58,13 @@ static std::atomic<bool> g_intelBroken{false};
 static void logf(const char* fmt, ...) {
     if (!g_isXPlane) return;
     std::lock_guard<std::mutex> lk(g_logLock);
-    FILE* f = _wfopen((g_dir + L"xp_optimus_bypass.log").c_str(), L"a");
-    if (!f) return;
+    FILE* f = _wfsopen(g_logPath.c_str(), L"a", _SH_DENYNO);
+    if (!f) {
+        OutputDebugStringW((L"XP Optimus Bypass: could not open log: " + g_logPath).c_str());
+        return;
+    }
+    // Publish every message while X-Plane is running; allow simultaneous tail/viewer reads.
+    setvbuf(f, nullptr, _IONBF, 0);
     SYSTEMTIME st;
     GetLocalTime(&st);
     fprintf(f, "[%02d:%02d:%02d] ", st.wHour, st.wMinute, st.wSecond);
@@ -66,6 +73,7 @@ static void logf(const char* fmt, ...) {
     vfprintf(f, fmt, ap);
     va_end(ap);
     fputc('\n', f);
+    fflush(f);
     fclose(f);
 }
 
@@ -125,6 +133,22 @@ static void initOnce() {
     g_isXPlane = (_wcsicmp(name.c_str(), L"X-Plane.exe") == 0);
     if (!g_isXPlane) return;
 
+    // Explicit path for the launcher; installed global mode uses the same root path automatically.
+    wchar_t requestedLog[32768] = {0};
+    DWORD logLength = GetEnvironmentVariableW(L"XP_OPTIMUS_BYPASS_LOG", requestedLog, 32768);
+    g_logPath = g_dir + L"xp_optimus_bypass.log";
+    if (logLength > 0 && logLength < 32768) {
+        g_logPath.assign(requestedLog, logLength);
+    } else if (!g_dir.empty()) {
+        std::wstring dir = g_dir.substr(0, g_dir.size() - 1);
+        size_t parentSlash = dir.find_last_of(L"\\/");
+        if (parentSlash != std::wstring::npos && _wcsicmp(dir.substr(parentSlash + 1).c_str(), L"app") == 0) {
+            std::wstring root = dir.substr(0, parentSlash + 1);
+            if (GetFileAttributesW((root + L"xpob-install.json").c_str()) != INVALID_FILE_ATTRIBUTES)
+                g_logPath = root + L"xp_optimus_bypass.log";
+        }
+    }
+
     FILE* f = _wfopen((g_dir + L"xp_optimus_bypass.ini").c_str(), L"r");
     if (f) {
         char line[256];
@@ -142,14 +166,14 @@ static void initOnce() {
         fclose(f);
     }
     // fresh log every run
-    FILE* lf = _wfopen((g_dir + L"xp_optimus_bypass.log").c_str(), L"w");
+    FILE* lf = _wfsopen(g_logPath.c_str(), L"w", _SH_DENYNO);
     if (lf) fclose(lf);
     logf("XP Optimus Bypass %s loaded in X-Plane.exe | mode=%s vsync=%d stats=%d", XPOB_VERSION,
          g_mode == MODE_OFF ? "off" : g_mode == MODE_ON ? "on" : "auto", g_vsync ? 1 : 0, g_stats ? 1 : 0);
     // X-Plane-only install: the loader only loads the layer when this variable is set (start_xplane.bat)
     char en[8] = {0};
     bool viaEnv = GetEnvironmentVariableA("XP_OPTIMUS_BYPASS_ENABLE", en, sizeof(en)) > 0;
-    logf("started with XP_OPTIMUS_BYPASS_ENABLE=1 (start_xplane.bat or launch option): %s", viaEnv ? "yes" : "no");
+    logf("started with XP_OPTIMUS_BYPASS_ENABLE=1 (dedicated launcher or launch option): %s", viaEnv ? "yes" : "no");
     logSystemInfo(e);
 }
 

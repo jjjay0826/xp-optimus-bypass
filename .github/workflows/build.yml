@@ -90,13 +90,35 @@ jobs:
           Add-Type -AssemblyName System.Windows.Forms
           $app = Join-Path $PWD 'checked\XP_Optimus_Bypass\app'
           . (Join-Path $app 'i18n.ps1')
-          if ((T '安裝') -ne 'Install') { throw 'English default failed' }
+          $installLabel = [string][char]0x5B89 + [char]0x88DD
+          if ((T $installLabel) -ne 'Install') { throw 'English default failed' }
           $script:Language = 'zh-TW'
-          if ((T '安裝') -ne '安裝') { throw 'Traditional Chinese translation failed' }
+          if ((T $installLabel) -cne $installLabel) { throw 'Traditional Chinese translation failed' }
           $map = Get-Content (Join-Path $app 'i18n.json') -Raw -Encoding UTF8 | ConvertFrom-Json
           if (-not $map) { throw 'Missing language map' }
           # Loading an arbitrary Vulkan layer in the CI process is not a GPU/X-Plane integration test.
-          Write-Host 'Windows syntax and language checks passed; manual X-Plane/installer tests remain required.'
+          . (Join-Path $app 'core.ps1')
+          $testRoot = Join-Path $env:TEMP ('XPBypass path test ' + [char]0x6E2C + [char]0x8A66 + ' ' + [guid]::NewGuid().ToString('N'))
+          try {
+            $destination = Resolve-InstallDestination $testRoot $app
+            Set-InstallPaths $destination
+            if ($script:AppDir -ne (Join-Path $destination 'app')) { throw 'Application path did not follow destination' }
+            if ($script:RootLog -ne (Join-Path $destination 'xp_optimus_bypass.log')) { throw 'Log path did not follow destination' }
+            [IO.Directory]::CreateDirectory($destination) | Out-Null
+            Assert-OwnedRoot
+            Set-Content -LiteralPath (Join-Path $destination 'unrelated.txt') -Value 'Do not overwrite'
+            $refused = $false
+            try { Assert-OwnedRoot } catch { $refused = $true }
+            if (-not $refused) { throw 'Unrelated nonempty folder was accepted' }
+            foreach ($bad in @($env:USERPROFILE, (Join-Path (Split-Path -Parent $app) 'nested'))) {
+              $refused = $false
+              try { [void](Resolve-InstallDestination $bad $app) } catch { $refused = $true }
+              if (-not $refused) { throw ('Unsafe destination was accepted: ' + $bad) }
+            }
+          } finally {
+            if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
+          }
+          Write-Host 'Windows syntax, language and destination boundary checks passed; manual X-Plane/installer tests remain required.'
 
   publish:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')

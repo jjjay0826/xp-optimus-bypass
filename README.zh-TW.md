@@ -4,7 +4,8 @@
 
 ### 下載
 
-**目前版本：0.9.1.1-beta** → **[下載 XP_Optimus_Bypass_v0.9.1.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1.1-beta/XP_Optimus_Bypass_v0.9.1.1-beta.zip)**，然後照下方的[安裝](#安裝)步驟。
+**目前版本：0.9.1-beta** → **[下載 XP_Optimus_Bypass_v0.9.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1-beta/XP_Optimus_Bypass_v0.9.1-beta.zip)**（照 zip 裡的說明安裝）。
+**測試用預先發行版：0.9.1.1-beta** → **[下載 XP_Optimus_Bypass_v0.9.1.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1.1-beta/XP_Optimus_Bypass_v0.9.1.1-beta.zip)**：只給 X-Plane 的安裝方式、出錯時自動回復而不當機。還沒在 Windows 上測過；下方的[安裝](#安裝)步驟是這一版的。
 各版本變更：[CHANGELOG](CHANGELOG.md) · 校驗碼和舊版本：[Releases](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [English](README.md)
 
 作者的筆電（ASUS TUF F15，i5-10300H + GTX 1650，無 MUX）：

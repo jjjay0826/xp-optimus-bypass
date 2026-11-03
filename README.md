@@ -4,7 +4,8 @@ A small Vulkan layer that can raise X-Plane 12's frame rate a lot on **Optimus l
 
 ### Download
 
-**Current version: 0.9.1.1-beta** → **[Download XP_Optimus_Bypass_v0.9.1.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1.1-beta/XP_Optimus_Bypass_v0.9.1.1-beta.zip)**, then follow [Install](#install).
+**Current version: 0.9.1-beta** → **[Download XP_Optimus_Bypass_v0.9.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1-beta/XP_Optimus_Bypass_v0.9.1-beta.zip)** (follow the README inside the zip).
+**Pre-release for testing: 0.9.1.1-beta** → **[Download XP_Optimus_Bypass_v0.9.1.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1.1-beta/XP_Optimus_Bypass_v0.9.1.1-beta.zip)**: X-Plane-only install, falls back instead of crashing. Not yet tested on Windows; the [Install](#install) steps below are for this version.
 Changes: [CHANGELOG](CHANGELOG.md) · checksums and older versions: [Releases](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [中文說明](README.zh-TW.md)
 
 On the author's laptop (ASUS TUF F15, i5-10300H + GTX 1650, no MUX):

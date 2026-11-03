@@ -4,7 +4,7 @@ A small Vulkan layer that can raise X-Plane 12's frame rate a lot on **Optimus l
 
 ### Download
 
-**Current version: 0.9.1-beta** → **[Download XP_Optimus_Bypass_v0.9.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1-beta/XP_Optimus_Bypass_v0.9.1-beta.zip)**, then follow [Install](#install).
+**Current version: 0.9.1.1-beta** → **[Download XP_Optimus_Bypass_v0.9.1.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1.1-beta/XP_Optimus_Bypass_v0.9.1.1-beta.zip)**, then follow [Install](#install).
 Changes: [CHANGELOG](CHANGELOG.md) · checksums and older versions: [Releases](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [中文說明](README.zh-TW.md)
 
 On the author's laptop (ASUS TUF F15, i5-10300H + GTX 1650, no MUX):
@@ -52,14 +52,24 @@ All measurements (PresentMon, VTune, Nsight, and per-call timings of every test 
 ## Install
 
 1. Download the release and unzip it to a folder you will keep, e.g. `C:\XP_Optimus_Bypass`. **Don't move the folder afterwards** (the install points Windows to it).
-2. Double-click `install.bat`.
-3. Start X-Plane normally and open `xp_optimus_bypass.log` in the same folder. You should see:
+2. Double-click `install.bat` and choose:
+   - **1 – X-Plane only (recommended):** other Vulkan programs never load the layer. Start X-Plane with
+     `start_xplane.bat` from this folder. The first time, it finds the default Steam install or asks you to drag
+     `X-Plane.exe` into the window. Starting X-Plane any other way runs it without the layer.
+   - **2 – All Vulkan programs** (the 0.9.1 behaviour): start X-Plane as usual. Every Vulkan program loads the DLL,
+     but it only acts in `X-Plane.exe` (see [Known issues](#known-issues)).
+3. Start X-Plane and open `xp_optimus_bypass.log` in the same folder. You should see:
    ```
    bypass prepared (extra GeForce queue: ...)
    Intel: device ready ...
    ACTIVE: X-Plane 1920x1080 -> GeForce -> host memory -> Intel -> screen
    ```
-   and every ~10 seconds a line with `FPS ...`.
+   and every ~10 seconds a line with `FPS ...`. With option 1, if there is no log at all, the layer was not loaded:
+   check that X-Plane was started with `start_xplane.bat`.
+
+   *Steam launch option (untested):* instead of `start_xplane.bat` you can try putting
+   `cmd /c "set XP_OPTIMUS_BYPASS_ENABLE=1&& %command%"` in X-Plane's Steam launch options. The log line
+   `started with XP_OPTIMUS_BYPASS_ENABLE=1 ...: yes` shows that it worked.
 
 **Checking the download (optional):** the DLL is not code-signed, so some antivirus tools or Windows SmartScreen may warn about it. You can check it matches the published build: open a command prompt in the folder and run
 ```
@@ -69,7 +79,7 @@ The result must equal the value in `SHA256SUMS.txt` (and in the release notes). 
 
 ## Uninstall
 
-Double-click `uninstall.bat` **in the same folder**, then delete the folder.
+Double-click `uninstall.bat`, then delete the folder. From 0.9.1.1 it removes every XP Optimus Bypass entry, including ones installed from other folders.
 
 ## Settings (`xp_optimus_bypass.ini`)
 
@@ -86,10 +96,13 @@ Restart X-Plane after changing anything.
 - **Tearing** with `vsync=0` (the Intel side presents immediately). Use `vsync=1` if it bothers you.
 - Not yet tested: VR, multiple monitors, moving the window between screens, long sessions with many add-ons, other GPUs/drivers.
 - The DLL is **not code-signed**; antivirus or SmartScreen may warn. Check the SHA-256 as described above.
-- Like every Vulkan layer, it is registered for **all Vulkan programs** of your Windows user. It does nothing outside
-  `X-Plane.exe`, but online games with **anti-cheat** may object to an unsigned DLL. Run `uninstall.bat` before playing
-  such games in Vulkan mode (or use their DirectX mode).
+- With install option **2 (all Vulkan programs)**, every Vulkan program of your Windows user loads the DLL. It does
+  nothing outside `X-Plane.exe`, but online games with **anti-cheat** may object to an unsigned DLL. Use option 1, or
+  run `uninstall.bat` before playing such games in Vulkan mode. With option 1, only programs started by
+  `start_xplane.bat` (X-Plane and anything X-Plane itself starts) load it.
 - Overlays that hook Vulkan (Steam overlay, Overwolf, OBS game capture, RTSS) may not play well with it. If you see crashes, disable them first.
+- If the Intel side fails during a flight, the layer switches back to NVIDIA's normal path for the rest of the
+  session (log: `switching back to NVIDIA's normal path`): FPS drops, but X-Plane keeps running.
 - A future X-Plane or driver update may break it. Uninstall if X-Plane misbehaves.
 - **Before reporting a bug to Laminar Research, uninstall this layer and reproduce without it.** Laminar did not make this and cannot support it.
 

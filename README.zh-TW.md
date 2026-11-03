@@ -4,7 +4,7 @@
 
 ### 下載
 
-**目前版本：0.9.1-beta** → **[下載 XP_Optimus_Bypass_v0.9.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1-beta/XP_Optimus_Bypass_v0.9.1-beta.zip)**，然後照下方的[安裝](#安裝)步驟。
+**目前版本：0.9.1.1-beta** → **[下載 XP_Optimus_Bypass_v0.9.1.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1.1-beta/XP_Optimus_Bypass_v0.9.1.1-beta.zip)**，然後照下方的[安裝](#安裝)步驟。
 各版本變更：[CHANGELOG](CHANGELOG.md) · 校驗碼和舊版本：[Releases](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [English](README.md)
 
 作者的筆電（ASUS TUF F15，i5-10300H + GTX 1650，無 MUX）：
@@ -50,14 +50,19 @@
 ## 安裝
 
 1. 解壓到一個固定的資料夾，例如 `C:\XP_Optimus_Bypass`。**之後不要移動這個資料夾**，安裝時登記的就是這個路徑
-2. 雙擊 `install.bat`
-3. 照平常開 X-Plane，打開同資料夾裡的 `xp_optimus_bypass.log`，應該會看到：
+2. 雙擊 `install.bat`，選擇：
+   - **1 – 只給 X-Plane（建議）**：其他 Vulkan 程式完全不會載入這個 layer。之後用這個資料夾裡的 `start_xplane.bat` 開 X-Plane。第一次執行時會自動找 Steam 預設的安裝位置，找不到就請你把 `X-Plane.exe` 拖進視窗。用其他方式開 X-Plane 就不會有 layer
+   - **2 – 所有 Vulkan 程式**（0.9.1 的做法）：照平常開 X-Plane。所有 Vulkan 程式都會載入這個 DLL，但只在 `X-Plane.exe` 裡作用（見[已知問題](#已知問題)）
+3. 開 X-Plane，打開同資料夾裡的 `xp_optimus_bypass.log`，應該會看到：
    ```
    bypass prepared (extra GeForce queue: ...)
    Intel: device ready ...
    ACTIVE: X-Plane 1920x1080 -> GeForce -> host memory -> Intel -> screen
    ```
-   之後大約每 10 秒會多一行 `FPS ...`
+   之後大約每 10 秒會多一行 `FPS ...`。選 1 的話，如果完全沒有 log，代表 layer 沒有被載入，請確認是用 `start_xplane.bat` 開的
+
+   *Steam 啟動選項（未測試）*：也可以不用 `start_xplane.bat`，改在 X-Plane 的 Steam 啟動選項填入
+   `cmd /c "set XP_OPTIMUS_BYPASS_ENABLE=1&& %command%"`。log 裡出現 `started with XP_OPTIMUS_BYPASS_ENABLE=1 ...: yes` 就代表成功
 
 **檢查下載的檔案（選擇性）**：這個 DLL 沒有數位簽章，有些防毒軟體或 Windows SmartScreen 可能會跳警告。可以確認它和公開的版本一模一樣：在資料夾開命令提示字元，輸入
 ```
@@ -67,7 +72,7 @@ certutil -hashfile xp_optimus_bypass.dll SHA256
 
 ## 移除
 
-在**同一個資料夾**雙擊 `uninstall.bat`，再刪掉資料夾。
+雙擊 `uninstall.bat`，再刪掉資料夾。0.9.1.1 起會移除所有 XP Optimus Bypass 的登記，包括從其他資料夾安裝的。
 
 ## 設定（`xp_optimus_bypass.ini`）
 
@@ -84,8 +89,9 @@ certutil -hashfile xp_optimus_bypass.dll SHA256
 - DLL **沒有數位簽章**，防毒軟體或 SmartScreen 可能會警告，請照上面的方法檢查 SHA-256
 - `vsync=0` 時會有**畫面撕裂**（Intel 那端是畫好就送）。介意的話用 `vsync=1`
 - 尚未測試：VR、多螢幕、在不同螢幕間拖曳視窗、裝了很多外掛的長時間飛行、其他顯卡與驅動
-- 跟所有 Vulkan layer 一樣，它是登記給你 Windows 帳號下的**所有 Vulkan 程式**。在 `X-Plane.exe` 以外什麼都不做，但有**反作弊**的線上遊戲可能不接受沒簽章的 DLL。用 Vulkan 模式玩這類遊戲前請先執行 `uninstall.bat`（或改用遊戲的 DirectX 模式）
+- 安裝時選 **2（所有 Vulkan 程式）** 的話，你 Windows 帳號下的所有 Vulkan 程式都會載入這個 DLL。它在 `X-Plane.exe` 以外什麼都不做，但有**反作弊**的線上遊戲可能不接受沒簽章的 DLL。請改選 1，或在用 Vulkan 模式玩這類遊戲前先執行 `uninstall.bat`。選 1 的話，只有 `start_xplane.bat` 開的程式（X-Plane 和它自己開的程式）會載入
 - 會掛進 Vulkan 的 overlay（Steam overlay、Overwolf、OBS 遊戲擷取、RTSS）可能不相容。遇到崩潰請先關掉它們
+- 如果飛行中 Intel 那端出錯，layer 會在這次執行剩下的時間改走 NVIDIA 原本的路徑（log 會寫 `switching back to NVIDIA's normal path`）：FPS 會掉回去，但 X-Plane 不會當掉
 - X-Plane 或驅動更新後可能失效，X-Plane 異常時請先移除
 - **向 Laminar Research 回報 bug 之前，請先移除這個 layer，確認沒裝也會發生。** 這不是 Laminar 做的，他們沒辦法支援
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.1.1-beta — 2026-11-03
+
+- **New default install: X-Plane only.** `install.bat` now asks how to install. Option 1 (recommended) registers the
+  layer with `enable_environment`, so the Vulkan loader only loads it when `XP_OPTIMUS_BYPASS_ENABLE=1` is set; start
+  X-Plane with the new `start_xplane.bat`. Other Vulkan programs (including games with anti-cheat) no longer load the
+  DLL at all. Option 2 keeps the 0.9.1 behaviour (all Vulkan programs, `xp_optimus_bypass_global.json`).
+- `install.bat` and `uninstall.bat` remove every earlier XP Optimus Bypass registry entry, also from other folders.
+- **Falls back instead of crashing:** if the Intel side fails during a flight (device or surface lost, or 30
+  failed frames in a row), the layer tells X-Plane its swapchain is out of date and gives it NVIDIA's normal swapchain
+  for the rest of the session. FPS drops back to the normal level, but X-Plane keeps running. Previously such an error
+  was passed to X-Plane as "device lost", which would most likely end the session.
+- The log shows whether X-Plane was started with `XP_OPTIMUS_BYPASS_ENABLE=1`, the Windows build, the X-Plane.exe
+  file version and the NVIDIA and Intel driver versions.
+- No change to the bypass itself when everything works.
+
 ## 0.9.1-beta — 2026-11-02
 
 - **Clean shutdown:** when X-Plane destroys its Vulkan device, the worker thread is stopped and joined and the Intel

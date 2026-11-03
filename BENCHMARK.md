@@ -7,7 +7,8 @@ Use this so results from different laptops can be compared. It takes about 10 mi
 
 - XP Optimus Bypass installed. With **0.9.0-beta** the log has no FPS lines in `mode=off`: turn on X-Plane's own
   frame-rate display (Settings → Data Output → "Frame rate" → show in cockpit) and note the FPS every ~10 s instead.
-  From 0.9.1-beta the log measures FPS in both modes.
+  From 0.9.1-beta the log measures FPS in both modes. With the "X-Plane only" install (0.9.1.1+), start X-Plane with
+  `start_xplane.bat` for **both** runs, also for `mode=off`, or there will be no log.
 - Close other programs that use the GPU (browsers with video, OBS, Overwolf, etc.).
 - Laptop plugged in, Windows power mode on "Best performance", same fan/performance profile for both runs.
 
@@ -43,7 +44,7 @@ screenshot. Results where it *doesn't* help are just as useful.
 
 讓不同筆電的結果可以互相比較，全程大約 10 分鐘。
 
-**準備**：安裝 XP Optimus Bypass。**0.9.0-beta** 在 `mode=off` 時 log 不會記 FPS，請打開 X-Plane 內建的 FPS 顯示（Settings → Data Output → 「Frame rate」→ 顯示在駕駛艙），每 10 秒左右記一次；0.9.1-beta 起兩種模式都會在 log 記錄 FPS。關掉其他會用到顯卡的程式；接上電源，Windows 電源模式設成「最佳效能」，兩次測試用同一個散熱／效能模式。
+**準備**：安裝 XP Optimus Bypass。**0.9.0-beta** 在 `mode=off` 時 log 不會記 FPS，請打開 X-Plane 內建的 FPS 顯示（Settings → Data Output → 「Frame rate」→ 顯示在駕駛艙），每 10 秒左右記一次；0.9.1-beta 起兩種模式都會在 log 記錄 FPS。0.9.1.1 起如果安裝時選「只給 X-Plane」，**兩次**（包括 `mode=off`）都要用 `start_xplane.bat` 開 X-Plane，否則不會有 log。關掉其他會用到顯卡的程式；接上電源，Windows 電源模式設成「最佳效能」，兩次測試用同一個散熱／效能模式。
 
 **固定情境**：內建 **Baron 58**（可再加測內建 **A330-300**）；**KSEA** 西雅圖機場 **16L** 跑道，準備起飛、引擎開著、停機煞車拉上；天氣手動設成**晴天無雲**；時間**當地 12:00**；預設駕駛艙視角，量測時**不要動視角和滑鼠**；畫質設定照平常，但**兩次要完全一樣**，並截圖附在回報裡。
 

@@ -36,7 +36,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.1-beta"
+#define XPOB_VERSION "0.9.1.1-beta"
 
 // ================================================================ config & log
 
@@ -50,6 +50,8 @@ static std::once_flag g_initOnce;
 static std::mutex g_logLock;
 static LARGE_INTEGER g_freq;
 static thread_local bool g_internalCreate = false;
+// set when the Intel side fails while flying: X-Plane is told to recreate its swapchain and gets NVIDIA's normal one
+static std::atomic<bool> g_intelBroken{false};
 
 static void logf(const char* fmt, ...) {
     if (!g_isXPlane) return;
@@ -71,6 +73,37 @@ static double nowMs() {
     LARGE_INTEGER t;
     QueryPerformanceCounter(&t);
     return double(t.QuadPart) * 1000.0 / double(g_freq.QuadPart);
+}
+
+// Windows build and X-Plane.exe file version, for bug reports
+static void logSystemInfo(const std::wstring& exePath) {
+    typedef LONG(WINAPI * RtlGetVersionFn)(OSVERSIONINFOW*);
+    OSVERSIONINFOW ov{};
+    ov.dwOSVersionInfoSize = sizeof(ov);
+    auto rgv = (RtlGetVersionFn)(void*)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
+    if (rgv && rgv(&ov) == 0)
+        logf("Windows %lu.%lu build %lu", ov.dwMajorVersion, ov.dwMinorVersion, ov.dwBuildNumber);
+    DWORD h = 0, sz = GetFileVersionInfoSizeW(exePath.c_str(), &h);
+    if (sz) {
+        std::vector<char> buf(sz);
+        VS_FIXEDFILEINFO* fi = nullptr;
+        UINT len = 0;
+        if (GetFileVersionInfoW(exePath.c_str(), 0, sz, buf.data()) &&
+            VerQueryValueW(buf.data(), L"\\", (void**)&fi, &len) && fi && len)
+            logf("X-Plane.exe file version %u.%u.%u.%u", HIWORD(fi->dwFileVersionMS), LOWORD(fi->dwFileVersionMS),
+                 HIWORD(fi->dwFileVersionLS), LOWORD(fi->dwFileVersionLS));
+    }
+}
+
+// driverVersion is vendor-encoded
+static void fmtDriver(const VkPhysicalDeviceProperties& p, char* out, size_t n) {
+    uint32_t v = p.driverVersion;
+    if (p.vendorID == 0x10DE)
+        snprintf(out, n, "%u.%02u", (v >> 22) & 0x3ff, (v >> 14) & 0xff);
+    else if (p.vendorID == 0x8086)
+        snprintf(out, n, "%u.%u", v >> 14, v & 0x3fff);
+    else
+        snprintf(out, n, "0x%08x", v);
 }
 
 static void initOnce() {
@@ -113,6 +146,11 @@ static void initOnce() {
     if (lf) fclose(lf);
     logf("XP Optimus Bypass %s loaded in X-Plane.exe | mode=%s vsync=%d stats=%d", XPOB_VERSION,
          g_mode == MODE_OFF ? "off" : g_mode == MODE_ON ? "on" : "auto", g_vsync ? 1 : 0, g_stats ? 1 : 0);
+    // X-Plane-only install: the loader only loads the layer when this variable is set (start_xplane.bat)
+    char en[8] = {0};
+    bool viaEnv = GetEnvironmentVariableA("XP_OPTIMUS_BYPASS_ENABLE", en, sizeof(en)) > 0;
+    logf("started with XP_OPTIMUS_BYPASS_ENABLE=1 (start_xplane.bat or launch option): %s", viaEnv ? "yes" : "no");
+    logSystemInfo(e);
 }
 
 // ---- which adapter drives a display (Optimus: the built-in screen is on the Intel iGPU)
@@ -349,7 +387,14 @@ static IntelCtx* intelCreate(HWND hwnd) {
     for (auto p : pds) {
         VkPhysicalDeviceProperties pr;
         c->vkGetPhysicalDeviceProperties(p, &pr);
-        if (pr.vendorID == 0x8086) { c->pd = p; logf("Intel: using %s", pr.deviceName); break; }
+        if (pr.vendorID == 0x8086) {
+            char dv[32];
+            fmtDriver(pr, dv, sizeof(dv));
+            c->pd = p;
+            logf("Intel: using %s, driver %s, Vulkan %u.%u", pr.deviceName, dv, VK_API_VERSION_MAJOR(pr.apiVersion),
+                 VK_API_VERSION_MINOR(pr.apiVersion));
+            break;
+        }
     }
     if (!c->pd) return fail("no Intel Vulkan device found");
     c->vkGetPhysicalDeviceMemoryProperties(c->pd, &c->mem);
@@ -574,12 +619,26 @@ static void destroyVSwap(VSwap* s) {
     delete s;
 }
 
+// An Intel-side failure while flying: hard errors switch back to NVIDIA's normal path at once, others after a run
+// of consecutive failed frames. X-Plane is then told its swapchain is out of date and recreates it, and
+// XP_CreateSwapchainKHR hands it a normal NVIDIA swapchain. Lower FPS, but no crash.
+static int g_intelFailRun = 0;  // consecutive failed Intel frames (worker thread / swapchain creation only)
+
+static void intelFailure(VSwap* s, const char* what, VkResult r) {
+    bool hard = r == VK_ERROR_DEVICE_LOST || r == VK_ERROR_SURFACE_LOST_KHR;
+    if (++g_intelFailRun <= 5 || hard) logf("Intel: %s failed (%d)", what, (int)r);
+    if ((hard || g_intelFailRun >= 30) && !g_intelBroken.exchange(true))
+        logf("Intel side not working -> switching back to NVIDIA's normal path (FPS will drop, X-Plane keeps running)");
+    if (g_intelBroken) s->err = (int)VK_ERROR_OUT_OF_DATE_KHR;
+}
+
 // (Re)create the Intel swapchain if needed. Worker thread or swapchain-creation time only.
 static bool ensureIntelSwapchain(VSwap* s) {
     IntelCtx* c = s->ic;
     if (s->iswap && !s->iRecreate) return true;
     VkSurfaceCapabilitiesKHR caps;
-    if (c->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(c->pd, c->surface, &caps) != VK_SUCCESS) return false;
+    VkResult cr = c->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(c->pd, c->surface, &caps);
+    if (cr != VK_SUCCESS) { intelFailure(s, "surface query", cr); return false; }
     VkExtent2D e = caps.currentExtent;
     if (e.width == 0xFFFFFFFF) e = s->ext;
     if (e.width == 0 || e.height == 0) return false;  // minimized: try again later
@@ -602,11 +661,7 @@ static bool ensureIntelSwapchain(VSwap* s) {
     sc.oldSwapchain = s->iswap;
     VkSwapchainKHR ns = VK_NULL_HANDLE;
     VkResult r = c->vkCreateSwapchainKHR(c->dev, &sc, nullptr, &ns);
-    if (r != VK_SUCCESS) {
-        static std::atomic<int> failures{0};
-        if (failures++ < 5) logf("Intel: swapchain creation failed (%d), will retry", (int)r);
-        return false;
-    }
+    if (r != VK_SUCCESS) { intelFailure(s, "swapchain creation", r); return false; }
     if (s->iswap) {
         c->vkDeviceWaitIdle(c->dev);
         c->vkDestroySwapchainKHR(c->dev, s->iswap, nullptr);
@@ -868,7 +923,8 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     double tNv = nowMs() - a;
 
     // 3) Intel: acquire, copy, present
-    if (!ensureIntelSwapchain(s)) return;  // minimized: drop this frame
+    if (g_intelBroken) { s->err = (int)VK_ERROR_OUT_OF_DATE_KHR; return; }  // waiting for X-Plane to recreate
+    if (!ensureIntelSwapchain(s)) return;  // minimized (or failed, see intelFailure): drop this frame
     uint32_t r = 0;
     a = nowMs();
     VkResult ar = c->vkAcquireNextImageKHR(c->dev, s->iswap, UINT64_MAX, s->iAcq[k], VK_NULL_HANDLE, &r);
@@ -880,7 +936,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     double tAcq = nowMs() - a;
     if (ar < 0 || r >= s->iImgs.size()) {
         s->iRecreate = true;
-        logf("Intel: acquire failed (%d)", (int)ar);
+        intelFailure(s, "acquire", ar < 0 ? ar : VK_ERROR_UNKNOWN);
         return;
     }
     if (ar == VK_SUBOPTIMAL_KHR) s->iRecreate = true;
@@ -895,7 +951,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     is.signalSemaphoreCount = 1;
     is.pSignalSemaphores = &s->iReady[k];
     VkResult isr = c->vkQueueSubmit(c->q, 1, &is, s->iFence[k]);
-    if (isr != VK_SUCCESS) { logf("Intel submit failed (%d)", (int)isr); s->err = (int)VK_ERROR_DEVICE_LOST; return; }
+    if (isr != VK_SUCCESS) { intelFailure(s, "submit", isr); return; }
     s->iFenceUsed[k] = true;
     VkPresentInfoKHR p{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     p.waitSemaphoreCount = 1;
@@ -907,7 +963,8 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     VkResult pr = c->vkQueuePresentKHR(c->q, &p);
     double tPres = nowMs() - a;
     if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) s->iRecreate = true;
-    else if (pr < 0) logf("Intel present failed (%d)", (int)pr);
+    if (pr < 0 && pr != VK_ERROR_OUT_OF_DATE_KHR) intelFailure(s, "present", pr);
+    else g_intelFailRun = 0;
 
     // stats: averages + the worst frame of each window, so hitches are visible
     if (s->frames > 0) {
@@ -941,6 +998,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
 
 static VkResult vAcquire(VSwap* s, VkSemaphore sem, VkFence fence, uint32_t* pIndex) {
     DevData* d = s->d;
+    if (g_intelBroken) return VK_ERROR_OUT_OF_DATE_KHR;  // X-Plane recreates -> normal NVIDIA swapchain
     int e = s->err.exchange(0);
     if (e < 0) return (VkResult)e;
     uint32_t i = 0;
@@ -996,7 +1054,8 @@ static VkResult vPresent(VSwap* s, const VkPresentInfoKHR* pi) {
     d->worker->push([s, i, waits, t0] { frameJob(s, i, waits, t0); });
     VkResult res = VK_SUCCESS;
     int e = s->err.exchange(0);
-    if (e < 0) res = (VkResult)e;
+    if (g_intelBroken) res = VK_ERROR_OUT_OF_DATE_KHR;
+    else if (e < 0) res = (VkResult)e;
     else if (s->suggestResize.exchange(false)) res = VK_SUBOPTIMAL_KHR;  // window size changed: let X-Plane resize
     if (pi->pResults) pi->pResults[0] = res;
     return res;
@@ -1095,7 +1154,10 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_CreateDevice(VkPhysicalDevice physicalD
         if (getProps) getProps(physicalDevice, &pr);
         bool nvidia = pr.vendorID == 0x10DE;
         bool intelDisplay = anyDisplayOnIntel();
-        logf("render GPU: %s | a display is driven by an Intel GPU: %s", pr.deviceName, intelDisplay ? "yes" : "no");
+        char dv[32];
+        fmtDriver(pr, dv, sizeof(dv));
+        logf("render GPU: %s, driver %s | a display is driven by an Intel GPU: %s", pr.deviceName, dv,
+             intelDisplay ? "yes" : "no");
         want = nvidia && (intelDisplay || g_mode == MODE_ON);
         if (!nvidia) logf("not an NVIDIA GPU -> bypass disabled");
         else if (!want) logf("no display on an Intel GPU -> bypass disabled (set mode=on to force)");
@@ -1286,7 +1348,10 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_CreateSwapchainKHR(VkDevice device, con
         if (it != g_surfHwnd.end()) hwnd = it->second;
     }
     bool use = hwnd && ci->flags == 0 && ci->imageArrayLayers <= 1 && (g_mode == MODE_ON || windowOnIntel(hwnd));
-    if (hwnd && !use && g_mode == MODE_AUTO) logf("X-Plane's window is not on an Intel-driven display -> normal path");
+    if (use && g_intelBroken) {
+        use = false;
+        logf("Intel side failed earlier -> normal NVIDIA path for the rest of this session");
+    } else if (hwnd && !use && g_mode == MODE_AUTO) logf("X-Plane's window is not on an Intel-driven display -> normal path");
     if (use && !g_intel) g_intel = intelCreate(hwnd);
     if (use && g_intel && g_intel->hwnd == hwnd) {
         auto* vs = new VSwap();

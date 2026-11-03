@@ -8,7 +8,7 @@ body:
       value: "Please follow [BENCHMARK.md](https://github.com/jjjay0826/xp-optimus-bypass/blob/main/BENCHMARK.md) first. Results where the layer does not help are just as useful."
   - type: input
     id: version
-    attributes: {label: XP Optimus Bypass version, placeholder: "0.9.1-beta"}
+    attributes: {label: XP Optimus Bypass version, placeholder: "0.9.1.1-beta"}
     validations: {required: true}
   - type: input
     id: laptop

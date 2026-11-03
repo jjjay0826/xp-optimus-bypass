@@ -1,0 +1,17 @@
+{
+    "file_format_version": "1.2.0",
+    "layer": {
+        "name": "VK_LAYER_XPOB_optimus_bypass",
+        "type": "GLOBAL",
+        "library_path": ".\\xp_optimus_bypass.dll",
+        "api_version": "1.3.0",
+        "implementation_version": "2",
+        "description": "XP Optimus Bypass (all Vulkan programs): presents X-Plane 12 frames through the Intel iGPU instead of NVIDIA's Optimus path; does nothing outside X-Plane.exe",
+        "functions": {
+            "vkNegotiateLoaderLayerInterfaceVersion": "vkNegotiateLoaderLayerInterfaceVersion"
+        },
+        "disable_environment": {
+            "XP_OPTIMUS_BYPASS_DISABLE": "1"
+        }
+    }
+}

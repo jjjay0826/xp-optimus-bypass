@@ -1,10 +1,5 @@
 name: Build
 
-# Builds the DLL and the release zip from source on every push.
-# When a release is published, the zip built here is attached to it (replacing any manual upload),
-# its SHA-256 is added to the release notes, and a build-provenance attestation is created.
-# For an existing release: Actions -> Build -> Run workflow, and enter its tag.
-
 on:
   push:
     branches: [main]
@@ -12,9 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Attach the build to this existing release (e.g. v0.9.1.1-beta); leave empty to only build"
+        description: 'Existing release to receive the installer (v0.9.2); empty = build only'
         required: false
-        default: ""
+        default: ''
+      source_ref:
+        description: 'Source branch or commit to build; the release tag is NOT used as the source'
+        required: true
+        default: main
   release:
     types: [published]
 
@@ -25,53 +24,43 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     permissions:
-      contents: write      # attach the zip to the release
-      id-token: write      # build-provenance attestation
+      contents: write
+      id-token: write
       attestations: write
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          ref: ${{ inputs.release_tag }}   # empty except for a manual run for a release: then build that tag
-
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha }}
       - name: Install MinGW-w64
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64-win32 binutils-mingw-w64-x86-64 zip
-          x86_64-w64-mingw32-g++-win32 --version | head -1
-
       - name: Version
         id: ver
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           src=$(sed -n 's/^#define XPOB_VERSION "\(.*\)"/\1/p' src/xp_optimus_bypass.cpp)
-          echo "source version: $src"
-          tag="${{ github.event.release.tag_name || inputs.release_tag }}"
-          if [ -n "$tag" ]; then
-            if [ "$tag" != "v$src" ]; then
-              echo "::error::release tag $tag does not match XPOB_VERSION $src in the source"; exit 1
-            fi
+          test -n "$src"
+          if [ -n "$TAG" ] && [ "$TAG" != "v$src" ]; then
+            echo "::error::Release tag $TAG does not match DLL source version $src"; exit 1
           fi
           echo "version=$src" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - name: Build
-        run: |
-          committed=$(sha256sum dist/xp_optimus_bypass.dll | cut -d' ' -f1)
-          sh build.sh
-          built=$(sha256sum dist/xp_optimus_bypass.dll | cut -d' ' -f1)
-          echo "committed dist/xp_optimus_bypass.dll: $committed"
-          echo "built here:                           $built"
-          if [ "$committed" = "$built" ]; then echo "identical: the committed DLL matches this build"
-          else echo "::notice::the committed DLL differs from this build"; fi
-
-      - name: Package
-        run: sh package.sh "${{ steps.ver.outputs.version }}"
-
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Build DLL
+        run: sh build.sh
+      - name: Package installer
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: sh package.sh "$VERSION"
       - uses: actions/upload-artifact@v4
         with:
           name: XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}
           path: XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}.zip
-
+          if-no-files-found: error
       - name: Attest build provenance
         if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v2
@@ -80,24 +69,74 @@ jobs:
             XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}.zip
             dist/xp_optimus_bypass.dll
 
-      - name: Attach to release
-        if: steps.ver.outputs.tag != ''
+  windows-check:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: XP_Optimus_Bypass_v${{ needs.build.outputs.version }}
+      - name: Validate PowerShell and language switching
+        shell: powershell
+        run: |
+          Expand-Archive -Path (Get-ChildItem *.zip).FullName -DestinationPath checked
+          Get-ChildItem checked -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) { throw ($errors | Out-String) }
+          }
+          Add-Type -AssemblyName System.Windows.Forms
+          $app = Join-Path $PWD 'checked\XP_Optimus_Bypass\app'
+          . (Join-Path $app 'i18n.ps1')
+          if ((T '安裝') -ne 'Install') { throw 'English default failed' }
+          $script:Language = 'zh-TW'
+          if ((T '安裝') -ne '安裝') { throw 'Traditional Chinese translation failed' }
+          $map = Get-Content (Join-Path $app 'i18n.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if (-not $map) { throw 'Missing language map' }
+          # Loading an arbitrary Vulkan layer in the CI process is not a GPU/X-Plane integration test.
+          Write-Host 'Windows syntax and language checks passed; manual X-Plane/installer tests remain required.'
+
+  publish:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    needs: [build, windows-check]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: XP_Optimus_Bypass_v${{ needs.build.outputs.version }}
+      - name: Attach installer to existing release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.ver.outputs.tag }}
-          ZIP: XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}.zip
+          TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SOURCE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha }}
         run: |
+          ZIP="XP_Optimus_Bypass_v${VERSION}.zip"
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null
           gh release upload "$TAG" "$ZIP" --clobber -R "$GITHUB_REPOSITORY"
-          zsum=$(sha256sum "$ZIP" | cut -d' ' -f1)
-          dsum=$(sha256sum dist/xp_optimus_bypass.dll | cut -d' ' -f1)
-          gh release view "$TAG" --json body -q .body -R "$GITHUB_REPOSITORY" | sed '/<!-- ci-checksums -->/,$d' > notes.md
-          {
-            echo
-            echo '<!-- ci-checksums -->'
-            echo "**SHA-256** (built by GitHub Actions from commit $(git rev-parse --short HEAD), [build log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))"
-            echo "- \`$ZIP\`: \`$zsum\`"
-            echo "- \`xp_optimus_bypass.dll\`: \`$dsum\`"
-            echo
-            echo "Check the DLL: \`certutil -hashfile xp_optimus_bypass.dll SHA256\`. Check that the zip was built here from this repository: \`gh attestation verify $ZIP -R $GITHUB_REPOSITORY\`."
-          } >> notes.md
+          gh release view "$TAG" --json body -q .body -R "$GITHUB_REPOSITORY" > old-notes.md
+          export ZIP
+          python3 - <<'PY'
+          import os, hashlib, re, pathlib
+          z = os.environ['ZIP']
+          digest = hashlib.sha256(pathlib.Path(z).read_bytes()).hexdigest()
+          run = os.environ['GITHUB_SERVER_URL']+'/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID']
+          block = '\n<!-- ci-installer-begin -->\n'
+          block += '### GUI installer update / 圖形安裝介面更新\n\n'
+          block += '- English default / 繁體中文選擇；single entry / 單一入口；reinstall support / 可重新安裝。\n'
+          block += '- Direct root logging with per-message flush and a live viewer / 直接寫第一層 log、逐筆刷新與即時檢視。\n'
+          block += '- This installer includes rebuilt logging code. DLL version is 0.9.2; this release includes the logging update. / 本包重新編譯 log 修正，DLL 版本為 0.9.2，校驗碼重新產生。\n'
+          block += '- Installer source is recorded in the build run linked below. / 安裝來源以本次建置紀錄為準，會列出對應的原始碼 commit。\n'
+          block += f'- Asset: `{z}`\n- SHA-256: `{digest}`\n- [Build and source commit / 建置與原始碼 commit]({run})\n'
+          block += f'- Verify / 驗證: `gh attestation verify {z} -R '+os.environ['GITHUB_REPOSITORY']+'`\n'
+          block += '- DLL checksum / DLL 校驗碼：see `app/xp_optimus_bypass.dll` in the packaged `SHA256SUMS.txt`.\n'
+          block += '<!-- ci-installer-end -->\n'
+          old = pathlib.Path('old-notes.md').read_text()
+          old = re.sub(r'\n?<!-- ci-installer-begin -->.*?<!-- ci-installer-end -->\n?', '\n', old, flags=re.S)
+          pathlib.Path('notes.md').write_text(old.rstrip()+'\n'+block)
+          PY
           gh release edit "$TAG" --notes-file notes.md -R "$GITHUB_REPOSITORY"

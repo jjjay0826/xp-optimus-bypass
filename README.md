@@ -1,143 +1,165 @@
-# XP Optimus Bypass (beta)
+# XP Optimus Bypass
 
-A small Vulkan layer that can raise X-Plane 12's frame rate a lot on **Optimus laptops without a MUX switch**, by sending finished frames to the screen through the Intel iGPU yourself instead of through NVIDIA's built-in Optimus path.
+A Vulkan layer for X-Plane 12 on Windows Optimus laptops where an NVIDIA GeForce GPU renders the game and an Intel integrated GPU drives the display. It presents completed frames through the Intel GPU to bypass NVIDIA's normal Optimus presentation path.
 
-### Download
+## Download
 
-**Current version: 0.9.1-beta** → **[Download XP_Optimus_Bypass_v0.9.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1-beta/XP_Optimus_Bypass_v0.9.1-beta.zip)** (follow the README inside the zip).
-**Pre-release for testing: 0.9.1.1-beta** → **[Download XP_Optimus_Bypass_v0.9.1.1-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.1.1-beta/XP_Optimus_Bypass_v0.9.1.1-beta.zip)**: X-Plane-only install, falls back instead of crashing. Not yet tested on Windows; the [Install](#install) steps below are for this version.
-Changes: [CHANGELOG](CHANGELOG.md) · checksums and older versions: [Releases](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [中文說明](README.zh-TW.md)
+**Current release: [0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2)**
 
-On the author's laptop (ASUS TUF F15, i5-10300H + GTX 1650, no MUX):
+Download **[XP_Optimus_Bypass_v0.9.2.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.2/XP_Optimus_Bypass_v0.9.2.zip)** for the installer. The automatically generated “Source code” archives are for developers.
 
-| Test | Without the layer | With the layer |
-|---|---|---|
-| **[Benchmark](BENCHMARK.md): Baron 58 at KSEA 16L (0.9.1-beta)** | **21.3 FPS** | **34.9 FPS** |
-| Frames over 50 ms (stutter), per 300 frames, same test | 37–63 | 0–4 |
-| Baron 58 at RCYU (Hualien), local midnight (pre-release test build) | ~20 FPS | 40–45 FPS |
-| A330 at RCYU (Hualien), local midnight (0.9.0-beta) | under 19 FPS | 36–41 FPS |
+[Release history](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [Installer changelog](installer/CHANGELOG.md) · [Quick guide / 英中操作說明](installer/README.txt)
 
-Benchmark values are medians of the 300-frame windows in the log. The RCYU rows (small airport, night) are lighter
-scenes than the KSEA benchmark at noon, so they are not directly comparable with it. KSEA (Seattle) is a dense, CPU-heavy area; with the
-layer on, the remaining limit there is X-Plane's own CPU work (lowering FSR or object density only gained 2–3 FPS).
+## What's new in 0.9.2
 
-> This is a beta tested on **one** laptop. Please report results (good or bad) with your log file.
+- A graphical installer and manager, with English selected by default and Traditional Chinese available.
+- Automatic detection of **X-Plane installation paths**, including Steam libraries, with manual selection available.
+- A selectable installation folder for **XP Optimus Bypass**.
+- A live viewer for the DLL log and launcher diagnostics.
+- A single entry point, `XP_Optimus_Bypass.bat`, for installation and management.
 
-## Who it is for
+This release also includes the X-Plane-only activation mode, Intel-side failure fallback and additional system information introduced in 0.9.1.1-beta.
 
-It can help if **all** of these are true:
+## Requirements
 
-- Windows laptop, X-Plane 12 (Vulkan)
-- NVIDIA GeForce renders X-Plane
-- the built-in screen is driven by the **Intel** iGPU (Optimus, no MUX switch, or MUX set to hybrid)
-- especially Intel **10th gen and older**, which cannot use Windows 11's Cross-Adapter Scan-Out (CASO)
+- Windows 10/11 with Windows PowerShell 5.1 and a desktop session.
+- X-Plane 12 running with Vulkan on an NVIDIA GeForce GPU.
+- The display used by X-Plane is driven by an Intel integrated GPU, typically on an Optimus laptop without a MUX switch or with its MUX set to hybrid mode.
 
-It does nothing useful (and turns itself off in `mode=auto`) on desktops, on laptops with the MUX set to dGPU, or when X-Plane's window is on an external monitor plugged into the GeForce. Laptops with Intel 11th gen or newer have CASO; the gain there is unknown.
+In `mode=auto`, the bypass is disabled where the required GPU/display arrangement is not detected. A desktop, a laptop in dGPU-only mode, or an external monitor connected directly to the NVIDIA GPU is not the intended use case.
 
-Not supported: AMD iGPUs, AMD/Intel discrete GPUs, Linux, macOS.
+The original investigation used an Intel 10th-generation laptop. Benefits on other hardware, including newer hybrid-display configurations, depend on the system. AMD integrated GPUs, AMD/Intel discrete render GPUs, Linux and macOS are not supported by this implementation.
 
-## Why it helps
+## Installation
 
-On these laptops every frame has to travel GeForce → shared memory → Intel iGPU → screen. On the test laptop, NVIDIA's own path for this took about **47 ms per frame** while flying (about 0.5 ms in the main menu), so X-Plane could never get past ~21 FPS, no matter the settings. Moving the presentation calls to another thread didn't help: the path itself had a throughput of ~21 frames per second.
+1. Fully extract `XP_Optimus_Bypass_v0.9.2.zip`. Keep the BAT file, `app` folder and `docs` folder together.
+2. Close X-Plane and run **`XP_Optimus_Bypass.bat`**.
+3. Confirm the **X-Plane installation path**. Select the intended installation from the list, use **Browse**, or enter the path to `X-Plane.exe` or its containing folder.
+4. Choose a separate folder in which to install **XP Optimus Bypass**. The default is `%LOCALAPPDATA%\Programs\XP Optimus Bypass`. Choose a location your Windows account can write to.
+5. Select an activation mode, set the desktop-shortcut and launch-after-install options, then click **Install**.
 
-This layer replaces that path:
+| Activation mode | How to start X-Plane |
+|---|---|
+| **X-Plane only — recommended** | Use **Launch X-Plane** in the manager or the dedicated shortcut. These enable the layer before starting the game. An ordinary X-Plane launch does not enable it. |
+| **Global** | Start X-Plane normally. Vulkan applications under the current Windows account load the DLL, but the bypass operates only inside `X-Plane.exe`. |
 
-1. X-Plane renders into images owned by the layer (it never gets a real NVIDIA swapchain).
-2. A worker thread copies each finished frame from the GeForce into pinned system memory (`VK_EXT_external_memory_host`).
-3. A separate Vulkan device on the Intel iGPU copies it into its own swapchain on X-Plane's window and presents it.
+The desktop shortcut is optional. In X-Plane-only mode, it provides a direct way to launch the game with the layer enabled, without first opening the manager. Global mode does not require that shortcut.
 
-The GeForce copy takes ~1–2 ms; the Intel present takes ~0.02 ms. After this, the GeForce itself becomes the limit, so graphics settings start to matter again.
+Automatic discovery runs in the background. If known locations produce no result, it searches local fixed drives; this can take several minutes. Network and removable-drive installations can be selected manually.
 
-All measurements (PresentMon, VTune, Nsight, and per-call timings of every test variant) are in [`docs/measurements.md`](docs/measurements.md).
+After installation succeeds, the extracted download folder may be deleted. Keep the selected installation folder in place. To change an existing installation's location, uninstall the tool first, then reinstall it in the new folder. Back up any settings and logs you want to retain before uninstalling.
 
-## Install
+## Logs and diagnostics
 
-1. Download the release and unzip it to a folder you will keep, e.g. `C:\XP_Optimus_Bypass`. **Don't move the folder afterwards** (the install points Windows to it).
-2. Double-click `install.bat` and choose:
-   - **1 – X-Plane only (recommended):** other Vulkan programs never load the layer. Start X-Plane with
-     `start_xplane.bat` from this folder. The first time, it finds the default Steam install or asks you to drag
-     `X-Plane.exe` into the window. Starting X-Plane any other way runs it without the layer.
-   - **2 – All Vulkan programs** (the 0.9.1 behaviour): start X-Plane as usual. Every Vulkan program loads the DLL,
-     but it only acts in `X-Plane.exe` (see [Known issues](#known-issues)).
-3. Start X-Plane and open `xp_optimus_bypass.log` in the same folder. You should see:
-   ```
-   bypass prepared (extra GeForce queue: ...)
-   Intel: device ready ...
-   ACTIVE: X-Plane 1920x1080 -> GeForce -> host memory -> Intel -> screen
-   ```
-   and every ~10 seconds a line with `FPS ...`. With option 1, if there is no log at all, the layer was not loaded:
-   check that X-Plane was started with `start_xplane.bat`.
+Logs are written to the **top level of the folder selected for XP Optimus Bypass**, not the extracted download folder:
 
-   *Steam launch option (untested):* instead of `start_xplane.bat` you can try putting
-   `cmd /c "set XP_OPTIMUS_BYPASS_ENABLE=1&& %command%"` in X-Plane's Steam launch options. The log line
-   `started with XP_OPTIMUS_BYPASS_ENABLE=1 ...: yes` shows that it worked.
+| File | Contents |
+|---|---|
+| `xp_optimus_bypass.log` | DLL initialization, bypass status, system information and performance statistics. |
+| `launcher-diagnostics.log` | Launch requests, layer-registration checks and diagnostics when fresh DLL output is not detected. |
 
-**Checking the download (optional):** the DLL is not code-signed, so some antivirus tools or Windows SmartScreen may warn about it. You can check it matches the published build: open a command prompt in the folder and run
+Click **Logs / Readme** in the manager to open the log viewer. The viewer rereads the files every second. With `stats=1`, FPS and timing statistics are recorded **every 300 frames**, so their interval depends on the frame rate.
+
+Each DLL message is flushed when written. The DLL starts a fresh log for each X-Plane session; copy logs before restarting if you need to keep them.
+
+When the bypass becomes active, look for records such as:
+
+```text
+bypass prepared (extra GeForce queue: ...)
+Intel: device ready ...
+ACTIVE: X-Plane ... -> GeForce -> host memory -> Intel -> screen
 ```
-certutil -hashfile xp_optimus_bypass.dll SHA256
-```
-The result must equal the value in `SHA256SUMS.txt` (and in the release notes). You can also build it yourself from `src/` (see below).
 
-## Uninstall
+FPS records alone do not prove the bypass is active: FPS is also recorded in `mode=off`. Windows build, X-Plane executable version and NVIDIA/Intel driver information are logged when available.
 
-Double-click `uninstall.bat`, then delete the folder. From 0.9.1.1 it removes every XP Optimus Bypass entry, including ones installed from other folders.
+If there is no DLL output, first check that you are viewing the installed folder's log. In X-Plane-only mode, use the dedicated launcher. Then inspect `launcher-diagnostics.log`; do not assume the layer loaded just because X-Plane started.
 
-## Settings (`xp_optimus_bypass.ini`)
+## Settings
+
+Edit **`app/xp_optimus_bypass.ini` inside the installed folder**, then restart X-Plane.
 
 | Setting | Values |
 |---|---|
-| `mode` | `auto` (default): only when needed · `on`: always try · `off`: bypass disabled (from 0.9.1: still logs FPS, for comparison) |
-| `vsync` | `0` (default): no cap, may tear · `1`: no tearing, FPS capped at the screen's refresh rate |
-| `stats` | `1` (default): write FPS and timings to the log every 300 frames |
+| `mode` | `auto` — enable when the required GPU/display arrangement is detected; `on` — force an attempt; `off` — disable the bypass while retaining FPS logging when `stats=1`. |
+| `vsync` | `0` — default, no refresh-rate cap and possible tearing; `1` — enable vertical synchronization. |
+| `stats` | `1` — default, record FPS and timings every 300 frames; `0` — disable performance-statistics logging. |
 
-Restart X-Plane after changing anything.
+The INI `mode` setting controls bypass behavior. It is separate from the installer's **X-Plane only / Global** choice, which controls how the DLL is loaded.
 
-## Known issues
+## Uninstall
 
-- **Tearing** with `vsync=0` (the Intel side presents immediately). Use `vsync=1` if it bothers you.
-- Not yet tested: VR, multiple monitors, moving the window between screens, long sessions with many add-ons, other GPUs/drivers.
-- The DLL is **not code-signed**; antivirus or SmartScreen may warn. Check the SHA-256 as described above.
-- With install option **2 (all Vulkan programs)**, every Vulkan program of your Windows user loads the DLL. It does
-  nothing outside `X-Plane.exe`, but online games with **anti-cheat** may object to an unsigned DLL. Use option 1, or
-  run `uninstall.bat` before playing such games in Vulkan mode. With option 1, only programs started by
-  `start_xplane.bat` (X-Plane and anything X-Plane itself starts) load it.
-- Overlays that hook Vulkan (Steam overlay, Overwolf, OBS game capture, RTSS) may not play well with it. If you see crashes, disable them first.
-- If the Intel side fails during a flight, the layer switches back to NVIDIA's normal path for the rest of the
-  session (log: `switching back to NVIDIA's normal path`): FPS drops, but X-Plane keeps running.
-- A future X-Plane or driver update may break it. Uninstall if X-Plane misbehaves.
-- **Before reporting a bug to Laminar Research, uninstall this layer and reproduce without it.** Laminar did not make this and cannot support it.
+Close X-Plane, open the manager and click **Uninstall**. Alternatively, remove **XP Optimus Bypass** through Windows Settings → Apps.
 
-## Reporting results
+If the DLL is still in use, close the relevant Vulkan applications and retry. After uninstalling and closing the manager, you may also delete the extracted download folder and the separate setup cache at `%LOCALAPPDATA%\XP Optimus Bypass Installer` if you no longer need them.
 
-Please follow [BENCHMARK.md](BENCHMARK.md) (about 10 minutes: same scenario with `mode=off` and `mode=auto`) and open a **Benchmark result** issue with both logs. For problems, open a **Bug report** issue. Changes between versions are in [CHANGELOG.md](CHANGELOG.md).
+## Historical performance results
 
-## Possible future work
+These measurements were reported on the author's ASUS TUF F15, with an i5-10300H, GTX 1650 and no MUX switch. **They are historical results from earlier builds, not new 0.9.2 benchmark results or a guarantee for other systems.**
 
-- **Other Vulkan games:** the layer is mostly game-independent (right now it only acts inside `X-Plane.exe`). Whether
-  other games suffer from the same slow Optimus present path is not known yet; if they do, a general version (opt-in
-  per game) may follow.
-- **DirectX 9–11 games:** might work through DXVK (DirectX → Vulkan) together with this layer. Untested.
-- Online games with anti-cheat will not be supported.
+| Test | Layer off | Layer on |
+|---|---|---|
+| Baron 58 at KSEA 16L, clear weather, 12:00 local (`0.9.1-beta`) | 21.3 FPS median | 34.9 FPS median |
+| Frames over 50 ms per 300 frames, same KSEA test | 37–63 | 0–4 |
+| Baron 58 at RCYU, local midnight (early test build) | About 20 FPS | 40–45 FPS |
+| A330 at RCYU, local midnight (`0.9.0-beta`) | Under 19 FPS | 36–41 FPS |
 
-No promises or dates — it depends on test results. If you know another Vulkan game that is stuck at low FPS on such a
-laptop, please open an issue.
+The RCYU night scenes are lighter than the KSEA noon scenario and are not directly comparable. In the reported KSEA test, X-Plane's CPU work became the remaining limit after enabling the layer.
+
+For comparable measurements, follow the [benchmark procedure](installer/docs/BENCHMARK.md) and retain both `mode=off` and `mode=auto` logs. Use the dedicated launcher for both runs when installed in X-Plane-only mode.
+
+## How it works
+
+1. X-Plane renders into images managed by the layer.
+2. A worker thread copies completed frames from the NVIDIA GPU into pinned system memory using `VK_EXT_external_memory_host`.
+3. A separate Vulkan device on the Intel GPU copies those frames into its swapchain and presents them on X-Plane's window.
+
+If Intel-side presentation fails, the layer attempts to return to NVIDIA's normal presentation path for the rest of the session. The performance benefit may then be lost.
+
+See the [measurements](docs/measurements.md) and [investigation notes](docs/investigation_zh-TW.md) for the original analysis.
+
+## Compatibility notes and reporting issues
+
+- `vsync=0` can produce tearing. Try `vsync=1` if needed.
+- Global mode loads an unsigned DLL into other Vulkan applications and may conflict with anti-cheat software. Use X-Plane-only mode for those environments and restart affected applications after changing modes.
+- Vulkan overlays or capture tools may cause compatibility problems. Disable them when investigating a crash.
+- The historical benchmarks do not establish compatibility with VR, every multi-monitor arrangement, long add-on-heavy sessions or all GPU/driver combinations.
+- Before reporting an X-Plane issue to Laminar Research, check whether it also occurs with this layer uninstalled.
+
+Report issues through [GitHub Issues](https://github.com/jjjay0826/xp-optimus-bypass/issues). Include the release version, laptop model, CPU/GPU, Windows and driver versions, activation mode, relevant logs and steps to reproduce. For performance comparisons, include graphics settings and both benchmark logs.
+
+## Verify the download
+
+The DLL is not digitally signed. From the **extracted package's root folder**, run:
+
+```bat
+certutil -hashfile app\xp_optimus_bypass.dll SHA256
+```
+
+Compare the result with the `app/xp_optimus_bypass.dll` entry in the packaged `SHA256SUMS.txt` (the entry may start with `./`). Official GitHub Actions release builds also provide build-provenance attestations:
+
+```sh
+gh attestation verify XP_Optimus_Bypass_v0.9.2.zip -R jjjay0826/xp-optimus-bypass
+```
+
+Attestation applies to the exact archive built by the workflow; it does not carry over to a modified or repackaged ZIP.
 
 ## Build from source
 
+From a source checkout, using the MinGW-w64 toolchain described in `build.sh`:
+
+```sh
+sh build.sh
+sh package.sh 0.9.2
 ```
-./build.sh                     # MinGW-w64 cross-compile (Ubuntu 24.04 / WSL)
-./package.sh 0.9.1.1-beta      # release zip
-```
 
-Release zips are built by GitHub Actions from this repository ([build.yml](.github/workflows/build.yml)); the release
-notes list their SHA-256. The build is reproducible: with the same toolchain (Ubuntu 24.04, MinGW-w64 GCC 13 win32,
-Vulkan-Headers v1.4.367) `build.sh` produces a byte-identical DLL. To check that a zip was built by GitHub Actions
-from this repository: `gh attestation verify XP_Optimus_Bypass_v<version>.zip -R jjjay0826/xp-optimus-bypass`.
+The output is `XP_Optimus_Bypass_v0.9.2.zip`.
 
-Single source file: `src/xp_optimus_bypass.cpp`, plus the Khronos Vulkan headers.
+- Vulkan layer source: [`src/xp_optimus_bypass.cpp`](src/xp_optimus_bypass.cpp)
+- Installer sources and documentation: [`installer/`](installer/)
+- Build and release workflow: [`.github/workflows/build.yml`](.github/workflows/build.yml)
 
-## Credits
+## Credits and license
 
-Investigation and code were done by the author together with an AI assistant (Anthropic's Claude), using Intel VTune, NVIDIA Nsight Systems, PresentMon and step-by-step test layers. The full investigation notes (Traditional Chinese) are in `docs/`.
+The original investigation and layer implementation were developed by the author with assistance from Anthropic's Claude, using Intel VTune, NVIDIA Nsight Systems, PresentMon and experimental layers.
 
-MIT License. Not affiliated with Laminar Research, NVIDIA or Intel.
+[MIT License](LICENSE). Not affiliated with Laminar Research, NVIDIA or Intel.

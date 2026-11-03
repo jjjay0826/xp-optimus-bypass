@@ -3,12 +3,18 @@ name: Build
 # Builds the DLL and the release zip from source on every push.
 # When a release is published, the zip built here is attached to it (replacing any manual upload),
 # its SHA-256 is added to the release notes, and a build-provenance attestation is created.
+# For an existing release: Actions -> Build -> Run workflow, and enter its tag.
 
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Attach the build to this existing release (e.g. v0.9.1.1-beta); leave empty to only build"
+        required: false
+        default: ""
   release:
     types: [published]
 
@@ -26,6 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          ref: ${{ inputs.release_tag }}   # empty except for a manual run for a release: then build that tag
 
       - name: Install MinGW-w64
         run: |
@@ -38,13 +45,14 @@ jobs:
         run: |
           src=$(sed -n 's/^#define XPOB_VERSION "\(.*\)"/\1/p' src/xp_optimus_bypass.cpp)
           echo "source version: $src"
-          if [ "${{ github.event_name }}" = "release" ]; then
-            tag="${{ github.event.release.tag_name }}"
+          tag="${{ github.event.release.tag_name || inputs.release_tag }}"
+          if [ -n "$tag" ]; then
             if [ "$tag" != "v$src" ]; then
               echo "::error::release tag $tag does not match XPOB_VERSION $src in the source"; exit 1
             fi
           fi
           echo "version=$src" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: |
@@ -73,10 +81,10 @@ jobs:
             dist/xp_optimus_bypass.dll
 
       - name: Attach to release
-        if: github.event_name == 'release'
+        if: steps.ver.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ steps.ver.outputs.tag }}
           ZIP: XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}.zip
         run: |
           gh release upload "$TAG" "$ZIP" --clobber -R "$GITHUB_REPOSITORY"
@@ -86,7 +94,7 @@ jobs:
           {
             echo
             echo '<!-- ci-checksums -->'
-            echo "**SHA-256** (built by GitHub Actions from commit ${GITHUB_SHA:0:7}, [build log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))"
+            echo "**SHA-256** (built by GitHub Actions from commit $(git rev-parse --short HEAD), [build log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))"
             echo "- \`$ZIP\`: \`$zsum\`"
             echo "- \`xp_optimus_bypass.dll\`: \`$dsum\`"
             echo

@@ -14,6 +14,8 @@
 - The log shows whether X-Plane was started with `XP_OPTIMUS_BYPASS_ENABLE=1`, the Windows build, the X-Plane.exe
   file version and the NVIDIA and Intel driver versions.
 - No change to the bypass itself when everything works.
+- Release zips are now built by GitHub Actions, with SHA-256 in the release notes and a build-provenance
+  attestation. The build is reproducible (byte-identical DLL from the same source and toolchain).
 
 ## 0.9.1-beta — 2026-11-02
 

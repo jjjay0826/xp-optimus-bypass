@@ -125,8 +125,14 @@ laptop, please open an issue.
 ## Build from source
 
 ```
-./build.sh        # MinGW-w64 cross-compile (Linux/WSL)
+./build.sh                     # MinGW-w64 cross-compile (Ubuntu 24.04 / WSL)
+./package.sh 0.9.1.1-beta      # release zip
 ```
+
+Release zips are built by GitHub Actions from this repository ([build.yml](.github/workflows/build.yml)); the release
+notes list their SHA-256. The build is reproducible: with the same toolchain (Ubuntu 24.04, MinGW-w64 GCC 13 win32,
+Vulkan-Headers v1.4.367) `build.sh` produces a byte-identical DLL. To check that a zip was built by GitHub Actions
+from this repository: `gh attestation verify XP_Optimus_Bypass_v<version>.zip -R jjjay0826/xp-optimus-bypass`.
 
 Single source file: `src/xp_optimus_bypass.cpp`, plus the Khronos Vulkan headers.
 

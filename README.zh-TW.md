@@ -111,8 +111,11 @@ certutil -hashfile xp_optimus_bypass.dll SHA256
 ## 從原始碼編譯
 
 ```
-./build.sh        # 用 MinGW-w64 交叉編譯（Linux/WSL）
+./build.sh                     # 用 MinGW-w64 交叉編譯（Ubuntu 24.04 / WSL）
+./package.sh 0.9.1.1-beta      # 打包 release zip
 ```
+
+Release 的 zip 是 GitHub Actions 直接從這個 repo 編譯出來的（[build.yml](.github/workflows/build.yml)），SHA-256 會寫在 release 說明裡。編譯結果可以重現：用同樣的工具（Ubuntu 24.04、MinGW-w64 GCC 13 win32、Vulkan-Headers v1.4.367）執行 `build.sh` 會得到一模一樣的 DLL。要確認 zip 是 GitHub Actions 從這個 repo 編出來的：`gh attestation verify XP_Optimus_Bypass_v<版本>.zip -R jjjay0826/xp-optimus-bypass`。
 
 只有一個原始碼檔：`src/xp_optimus_bypass.cpp`，另外需要 Khronos 的 Vulkan 標頭檔。
 

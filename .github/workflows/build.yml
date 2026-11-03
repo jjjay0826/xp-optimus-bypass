@@ -1,0 +1,95 @@
+name: Build
+
+# Builds the DLL and the release zip from source on every push.
+# When a release is published, the zip built here is attached to it (replacing any manual upload),
+# its SHA-256 is added to the release notes, and a build-provenance attestation is created.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write      # attach the zip to the release
+      id-token: write      # build-provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install MinGW-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-mingw-w64-x86-64-win32 binutils-mingw-w64-x86-64 zip
+          x86_64-w64-mingw32-g++-win32 --version | head -1
+
+      - name: Version
+        id: ver
+        run: |
+          src=$(sed -n 's/^#define XPOB_VERSION "\(.*\)"/\1/p' src/xp_optimus_bypass.cpp)
+          echo "source version: $src"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+            if [ "$tag" != "v$src" ]; then
+              echo "::error::release tag $tag does not match XPOB_VERSION $src in the source"; exit 1
+            fi
+          fi
+          echo "version=$src" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: |
+          committed=$(sha256sum dist/xp_optimus_bypass.dll | cut -d' ' -f1)
+          sh build.sh
+          built=$(sha256sum dist/xp_optimus_bypass.dll | cut -d' ' -f1)
+          echo "committed dist/xp_optimus_bypass.dll: $committed"
+          echo "built here:                           $built"
+          if [ "$committed" = "$built" ]; then echo "identical: the committed DLL matches this build"
+          else echo "::notice::the committed DLL differs from this build"; fi
+
+      - name: Package
+        run: sh package.sh "${{ steps.ver.outputs.version }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}
+          path: XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}.zip
+
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}.zip
+            dist/xp_optimus_bypass.dll
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          ZIP: XP_Optimus_Bypass_v${{ steps.ver.outputs.version }}.zip
+        run: |
+          gh release upload "$TAG" "$ZIP" --clobber -R "$GITHUB_REPOSITORY"
+          zsum=$(sha256sum "$ZIP" | cut -d' ' -f1)
+          dsum=$(sha256sum dist/xp_optimus_bypass.dll | cut -d' ' -f1)
+          gh release view "$TAG" --json body -q .body -R "$GITHUB_REPOSITORY" | sed '/<!-- ci-checksums -->/,$d' > notes.md
+          {
+            echo
+            echo '<!-- ci-checksums -->'
+            echo "**SHA-256** (built by GitHub Actions from commit ${GITHUB_SHA:0:7}, [build log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))"
+            echo "- \`$ZIP\`: \`$zsum\`"
+            echo "- \`xp_optimus_bypass.dll\`: \`$dsum\`"
+            echo
+            echo "Check the DLL: \`certutil -hashfile xp_optimus_bypass.dll SHA256\`. Check that the zip was built here from this repository: \`gh attestation verify $ZIP -R $GITHUB_REPOSITORY\`."
+          } >> notes.md
+          gh release edit "$TAG" --notes-file notes.md -R "$GITHUB_REPOSITORY"

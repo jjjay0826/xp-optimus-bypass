@@ -89,11 +89,20 @@ $warning.Text = (T '全域模式可能影響反作弊相容性；玩此類 Vulka
 $warning.ForeColor = [Drawing.Color]::FromArgb(150, 75, 0)
 $warning.SetBounds(19, 88, 670, 35)
 $modeGroup.Controls.Add($warning)
-$null = Add-Label (T '3. 安裝位置（固定，無需系統管理員權限）') 26 424 710 26
+$null = Add-Label (T '3. 安裝位置（請選擇有寫入權限的資料夾）') 26 424 710 26
 $location = New-Object Windows.Forms.TextBox
-$location.ReadOnly = $true; $location.Text = $script:InstallRoot
-$location.SetBounds(26, 455, 706, 29)
+$location.ReadOnly = $false; $location.Text = $script:InstallRoot
+$location.SetBounds(26, 455, 550, 29)
 $form.Controls.Add($location)
+$chooseInstallFolder = Add-Button (T '選擇資料夾…') 588 453 144
+$chooseInstallFolder.Add_Click({
+    $dialog = New-Object Windows.Forms.FolderBrowserDialog
+    $dialog.Description = T '選擇本工具專用的安裝資料夾（可建立新資料夾）。'
+    $dialog.ShowNewFolderButton = $true
+    if (Test-Path -LiteralPath $location.Text -PathType Container) { $dialog.SelectedPath = $location.Text }
+    if ($dialog.ShowDialog($form) -eq 'OK') { $location.Text = $dialog.SelectedPath }
+    $dialog.Dispose()
+})
 $desktop = New-Object Windows.Forms.CheckBox
 $desktop.Text = (T '建立桌面啟動捷徑'); $desktop.Checked = $true
 $desktop.SetBounds(26, 494, 310, 30); $form.Controls.Add($desktop)
@@ -181,7 +190,8 @@ $install.Add_Click({
         Stop-Search
         $mode = 'xplane'
         if ($globalRadio.Checked) { $mode = 'global' }
-        Install-XPBypass -SourceApp $PSScriptRoot -Mode $mode -XPlanePath $pathCombo.Text -DesktopShortcut $desktop.Checked
+        Install-XPBypass -SourceApp $PSScriptRoot -Mode $mode -XPlanePath $pathCombo.Text -DesktopShortcut $desktop.Checked -DestinationRoot $location.Text
+        $location.Text = $script:InstallRoot
         Update-State
         $status.Text = (T '安裝完成。可從桌面或開始功能表啟動；模式與路徑已儲存。')
         if ($runAfter.Checked) {

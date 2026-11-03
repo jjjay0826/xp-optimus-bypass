@@ -1,3 +1,14 @@
+## Configurable install location / 可選擇安裝位置
+
+- Editable destination and folder picker, in both languages.
+- Remember the installed path through the per-user uninstall registration.
+- Derive application, docs, logs, manifest and shortcut paths from that destination.
+- Accept new/empty folders; refuse unrelated nonempty folders and installer-source overlap.
+- Changing an existing install location requires uninstalling first; retain installer sources for reinstall.
+- 安裝位置可輸入與瀏覽；依使用者登錄記住位置，程式、log、文件、捷徑皆跟隨。
+- 接受新建或空資料夾，拒絕其他非空資料夾及與安裝來源重疊的位置。
+- 已安裝時更換位置須先移除再重裝，獨立安裝來源會保留。
+
 # 0.9.2 / Installer and DLL logging update — 2026-11-03
 
 - DLL directly selects the installed root log, or XP_OPTIMUS_BYPASS_LOG when set.

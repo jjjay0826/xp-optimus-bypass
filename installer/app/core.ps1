@@ -1,15 +1,38 @@
 ﻿$script:ProductName = 'XP Optimus Bypass'
 $script:InstallerVersion = '0.9.2'
-$script:InstallRoot = Join-Path $env:LOCALAPPDATA 'Programs\XP Optimus Bypass'
-$script:AppDir = Join-Path $script:InstallRoot 'app'
 $script:LayerKey = 'HKCU:\Software\Khronos\Vulkan\ImplicitLayers'
 $script:UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\XPOptimusBypass'
 $script:RootFiles = @('XP_Optimus_Bypass.bat', 'README.txt', 'LICENSE', 'CHANGELOG.md')
 $script:LegacyRootFiles = @('Setup.bat', 'Start_XPlane.bat', 'Manage.bat', 'Uninstall.bat', 'README.md')
 $script:ManagedRootFiles = $script:RootFiles + $script:LegacyRootFiles
-$script:DocsDir = Join-Path $script:InstallRoot 'docs'
-$script:RootLog = Join-Path $script:InstallRoot 'xp_optimus_bypass.log'
-$script:Marker = Join-Path $script:InstallRoot 'xpob-install.json'
+function Set-InstallPaths([string]$Root) {
+    $script:InstallRoot = $Root
+    $script:AppDir = Join-Path $Root 'app'
+    $script:DocsDir = Join-Path $Root 'docs'
+    $script:RootLog = Join-Path $Root 'xp_optimus_bypass.log'
+    $script:Marker = Join-Path $Root 'xpob-install.json'
+}
+function Resolve-InstallDestination([string]$Value, [string]$SourceApp) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { throw (T '請選擇安裝資料夾。') }
+    $expanded = [Environment]::ExpandEnvironmentVariables($Value.Trim().Trim('"'))
+    if ($expanded -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+\\)') { throw (T '請輸入完整的安裝資料夾路徑。') }
+    $target = [IO.Path]::GetFullPath($expanded).TrimEnd('\')
+    $forbidden = @([IO.Path]::GetPathRoot($target).TrimEnd('\'), $env:WINDIR, $env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})
+    foreach ($path in $forbidden) {
+        if ($path -and $target -ieq $path.TrimEnd('\')) { throw (T '請為本工具選擇獨立的子資料夾。') }
+    }
+    $source = [IO.Path]::GetFullPath((Split-Path -Parent $SourceApp)).TrimEnd('\')
+    if ($target -ieq $source -or $target.StartsWith($source + '\', [StringComparison]::OrdinalIgnoreCase) -or $source.StartsWith($target + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw (T '安裝位置不能包含或位於保留的安裝來源內。')
+    }
+    return $target
+}
+$initialRoot = Join-Path $env:LOCALAPPDATA 'Programs\XP Optimus Bypass'
+$registeredInstall = Get-ItemProperty -LiteralPath $script:UninstallKey -ErrorAction SilentlyContinue
+if ($registeredInstall -and -not [string]::IsNullOrWhiteSpace($registeredInstall.InstallLocation)) {
+    $initialRoot = [string]$registeredInstall.InstallLocation
+}
+Set-InstallPaths $initialRoot
 
 function Get-InstallState {
     $file = Join-Path $script:AppDir 'install-state.json'
@@ -19,13 +42,15 @@ function Get-InstallState {
 }
 function Assert-OwnedRoot {
     if (Test-Path -LiteralPath $script:InstallRoot) {
+        $item = Get-Item -LiteralPath $script:InstallRoot
+        if (-not $item.PSIsContainer) { throw (T '安裝位置必須是資料夾。') }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw (T '安裝位置不能是目錄連結。') }
         if (-not (Test-Path -LiteralPath $script:Marker -PathType Leaf)) {
-            throw (T '安裝位置已有其他內容，為避免覆蓋，請先將該資料夾移走：') + $script:InstallRoot
+            if (@(Get-ChildItem -LiteralPath $script:InstallRoot -Force).Count -eq 0) { return }
+            throw ((T '安裝位置已有其他內容，為避免覆蓋，請先將該資料夾移走：') + $script:InstallRoot)
         }
         $markerData = Get-Content -LiteralPath $script:Marker -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($markerData.product -ne 'XPOptimusBypass') { throw (T '安裝位置的識別資料不符，已停止操作。') }
-        $item = Get-Item -LiteralPath $script:InstallRoot
-        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw (T '安裝位置不能是目錄連結。') }
     }
 }
 function Assert-XPlaneClosed {
@@ -71,7 +96,13 @@ function Start-InstalledXPlane {
     $launcher = Join-Path $script:AppDir 'launch.ps1'
     Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launcher + '"') -ErrorAction Stop
 }
-function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath, [bool]$DesktopShortcut) {
+function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath, [bool]$DesktopShortcut, [string]$DestinationRoot) {
+    $target = Resolve-InstallDestination $DestinationRoot $SourceApp
+    $registered = Get-ItemProperty -LiteralPath $script:UninstallKey -ErrorAction SilentlyContinue
+    if ($registered -and $registered.InstallLocation -and $target -ine ([string]$registered.InstallLocation).TrimEnd('\')) {
+        throw (T '若要更換安裝位置，請先解除安裝，再選擇新位置重新安裝。')
+    }
+    Set-InstallPaths $target
     if ($Mode -notin @('xplane', 'global')) { throw (T '安裝模式不正確。') }
     $exe = Resolve-XPlane $XPlanePath
     if (-not $exe) { throw (T '請選擇含有 X-Plane.exe 的有效安裝位置。') }

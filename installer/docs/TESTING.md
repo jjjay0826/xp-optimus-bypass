@@ -31,3 +31,14 @@ These checks are pending until run on Windows with X-Plane. / 以下須在 Windo
 12. 測試 DLL 邊寫邊讀，以及遊戲重建 log 時的共享讀取。
 13. 重開前保留效能比較需要的兩份 log。
 14. 移除後保留獨立安裝來源，不動 X-Plane。
+
+## Custom destination regression / 自訂位置回歸
+
+- Install to a new custom folder, including spaces, Chinese and a different drive.
+- Repeat using an empty folder created by the picker.
+- Restart the manager and verify the registered custom location is restored.
+- Verify layer manifest, shortcut working directory, Windows Apps uninstall and root logs use the custom path.
+- Reject changing the active install location; uninstall, choose a different folder and reinstall successfully.
+- Reject drive/profile/system roots, installer-source ancestors/descendants and unrelated nonempty folders.
+- 新位置、空資料夾、中文／空白與不同磁碟皆須驗收；重開視窗可恢復位置。
+- 登記、捷徑、移除、log 必須使用自訂位置；換位置先移除再重裝。

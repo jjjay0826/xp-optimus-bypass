@@ -21,6 +21,20 @@ where powershell.exe >nul 2>&1 || (
     pause
     exit /b 1
 )
+rem Start the installer window without keeping this console open (Windows 10 1903 or newer, unrestricted PowerShell).
+rem Otherwise run it here, so any error stays readable in this window.
+set "XP_CONHOST=%SystemRoot%\System32\conhost.exe"
+set "XP_BUILD=0"
+for /f "tokens=4-6 delims=. " %%a in ('ver') do set "XP_BUILD=%%c"
+set "XP_BUILD=%XP_BUILD:]=%"
+if not exist "%XP_CONHOST%" goto visible
+if %XP_BUILD% LSS 18362 goto visible
+powershell.exe -NoLogo -NoProfile -Command "if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { exit 3 }"
+if errorlevel 1 goto visible
+start "" "%XP_CONHOST%" --headless powershell.exe -NoLogo -NoProfile -STA -ExecutionPolicy Bypass -File "%XP_BOOT%"
+exit /b 0
+
+:visible
 powershell.exe -NoLogo -NoProfile -STA -ExecutionPolicy Bypass -File "%XP_BOOT%"
 if errorlevel 1 (
     echo Installer failed. See the message and %LOCALAPPDATA%\XP Optimus Bypass Installer\installer-error.log

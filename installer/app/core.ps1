@@ -92,20 +92,33 @@ function Get-ShortcutPaths {
     @((Join-Path $menu '啟動 X-Plane.lnk'), (Join-Path $menu '管理與解除安裝.lnk'),
       (Join-Path ([Environment]::GetFolderPath('Desktop')) 'X-Plane (Optimus Bypass).lnk'))
 }
+# Windows Terminal (the default console on Windows 11) ignores -WindowStyle Hidden, so an empty PowerShell window
+# would stay open while the launcher waits for X-Plane to close. A headless conhost runs the script with no window.
+function Get-HiddenLaunch([string]$ScriptPath) {
+    $ps = Join-Path $PSHOME 'powershell.exe'
+    $psArgs = '-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $ScriptPath + '"'
+    $conhost = Join-Path $env:SystemRoot 'System32\conhost.exe'
+    if ([Environment]::OSVersion.Version.Build -ge 18362 -and (Test-Path -LiteralPath $conhost)) {
+        return @{ File = $conhost; Args = ('--headless "' + $ps + '" ' + $psArgs) }
+    }
+    return @{ File = $ps; Args = $psArgs }
+}
 function Write-Shortcut([string]$Path, [string]$ScriptPath) {
     [IO.Directory]::CreateDirectory((Split-Path -Parent $Path)) | Out-Null
     $shell = New-Object -ComObject WScript.Shell
     $link = $shell.CreateShortcut($Path)
-    $link.TargetPath = Join-Path $PSHOME 'powershell.exe'
-    $link.Arguments = '-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $ScriptPath + '"'
+    $run = Get-HiddenLaunch $ScriptPath
+    $link.TargetPath = $run.File
+    $link.Arguments = $run.Args
+    $link.IconLocation = (Join-Path $PSHOME 'powershell.exe') + ',0'
     $link.WorkingDirectory = $script:AppDir
     $link.Description = 'XP Optimus Bypass'
     $link.Save()
     [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
 }
 function Start-InstalledXPlane {
-    $launcher = Join-Path $script:AppDir 'launch.ps1'
-    Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launcher + '"') -ErrorAction Stop
+    $run = Get-HiddenLaunch (Join-Path $script:AppDir 'launch.ps1')
+    Start-Process -FilePath $run.File -ArgumentList $run.Args -WindowStyle Hidden -ErrorAction Stop
 }
 function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath, [bool]$DesktopShortcut, [string]$DestinationRoot, [bool]$Reports = $true) {
     $target = Resolve-InstallDestination $DestinationRoot $SourceApp

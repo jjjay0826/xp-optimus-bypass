@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.9.3-beta — 2026-11-04
+
+Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3.md)). Not yet tested on Windows.
+
+- **Always a virtual swapchain** when the layer is active; the output path (bypass through the Intel GPU, or native
+  through a layer-owned NVIDIA swapchain) is switched inside the layer. No reliance on X-Plane recreating its
+  swapchain (`VK_SUBOPTIMAL_KHR` is not guaranteed to cause that). `OUT_OF_DATE` remains only as a last resort.
+- **Screen changes:** the window's screen is checked every second; moving it to a screen driven by another GPU
+  switches to native and back (seen twice, 2 s cooldown).
+- **Measured path selection** (`path=auto`, `probe=1`): native / bypass / native / bypass, 300 frames each after the
+  frame rate is stable; bypass is kept only with >= 5% lower P50 and <= 10% higher P95. Cached per GPU, driver and
+  screen in `xpob_path_cache.txt`; re-measured if P95 gets > 30% worse for 30 s (at most every 10 minutes).
+- **Intel device chosen by LUID** (the GPU that drives X-Plane's screen), not the first Intel device.
+- **Without `VK_EXT_external_memory_host`:** half-import or CPU copy instead of disabling the bypass; the alignment
+  is checked instead of assumed.
+- **No spare graphics queue:** a transfer-only queue is used (images in concurrent sharing mode).
+- **Formats and sizes:** non-BGRA8 SDR formats are converted with a GeForce blit; size differences are scaled with an
+  Intel blit; X-Plane is offered only SDR formats the bypass can handle; HDR color spaces use the native path.
+- **Diagnostics:** `[diag]` lines (GPUs, LUIDs, extensions, queue families, DXGI adapters and screens, swapchain
+  request, Intel surface formats, implicit layers, overlay DLLs, chosen path and reason). Paths in the log hide the
+  user name. Every 300 frames: frame-time P50/P95/P99/max/over 50 ms and per-path GPU copy (timestamps), CPU copy,
+  fence wait, acquire, present and the layer's own time on X-Plane's thread.
+- **INI:** `path`, `probe` and test switches `test_force_blit`, `test_force_cpu_copy`, `test_no_extra_queue`,
+  `test_fail_intel_after`.
+- **Installer 0.9.3:** Global mode is an advanced option with an anti-cheat confirmation; detects running from inside
+  the ZIP and restricted PowerShell; more detail in `installer-error.log`; `fallback` folder installs without
+  PowerShell.
+- **Anonymous compatibility reports** sent by the launcher after X-Plane closes: on by default, visible in the
+  installer, can be switched off; only whitelisted fields, no paths or identifiers. Report server in `server/`
+  (Cloudflare Worker, stores no IP). Nothing is sent until the server address is set in `report.ps1`.
+
 ## 0.9.1.1-beta — 2026-11-03
 
 - **New default install: X-Plane only.** `install.bat` now asks how to install. Option 1 (recommended) registers the

@@ -1,3 +1,24 @@
+# 0.9.3-beta acceptance / 0.9.3 實機驗收
+
+Each step: start X-Plane with the dedicated launcher, fly about 2 minutes at KSEA 16L (benchmark scenario), close
+X-Plane, keep the log. Change only the listed INI lines, then set them back. / 每一步都用專用入口啟動，
+在 KSEA 16L 飛約 2 分鐘後關閉並保存 log；只改列出的 INI 設定，測完改回。
+
+| # | INI | Expected in the log / log 應該出現 |
+|---|---|---|
+| 1 | defaults | `[diag]` lines (GPUs with LUID, screens, queue families, swapchain request); `path -> bypass (start)`; `ACTIVE`; FPS lines with `path=bypass mem=shared` and P50/P95/P99; FPS about the same as 0.9.2 |
+| 2 | defaults, fly ~6 min | `probe:` lines, 4 measurements, then `selected bypass` (or native) with numbers; restart X-Plane: `path from earlier measurement` |
+| 3 | `path=native` | `path -> native`; FPS like without the layer (~20 at KSEA); `n_acq`/`n_pres` timings |
+| 4 | `test_force_blit=1` | `GeForce conversion blit to BGRA8`; picture and colors correct; FPS only slightly lower |
+| 5 | `test_force_cpu_copy=1` | `memory CPU copy (no host import)`; `cpu_copy` timings; picture correct |
+| 6 | `test_no_extra_queue=1` | `transfer-only family`; bypass still works (no blit) |
+| 7 | `test_fail_intel_after=600` | `simulating an Intel device loss` → `switching to the native NVIDIA path`; X-Plane keeps running, no crash |
+| 8 | defaults, resize the X-Plane window / toggle fullscreen | picture follows the size (scaled while sizes differ), no crash |
+| 9 | defaults, minimize and restore | no crash, picture returns |
+| 10 | defaults + Steam overlay (Shift+Tab), RTSS, OBS (if available) | overlay names in `[diag]`; note whether the overlay shows and whether OBS records |
+| 11 | manager: report checkbox on, fly, close X-Plane | `launcher-diagnostics.log`: report sent / not sent (no server yet); Report window shows no paths or user name |
+| 12 | installer | Global hidden until Advanced is ticked; confirmation dialog; fallback folder install / start / uninstall works |
+
 # Runtime acceptance / 實機驗收
 
 These checks are pending until run on Windows with X-Plane. / 以下須在 Windows 實際驗收。

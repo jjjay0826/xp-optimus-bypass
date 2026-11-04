@@ -8,7 +8,7 @@ try {
     if (Test-Path -LiteralPath $cfg) { $exe = Resolve-XPlane (Get-Content -LiteralPath $cfg -Encoding UTF8 -TotalCount 1) }
     if (-not $exe) {
         [void][Windows.Forms.MessageBox]::Show((T 'X-Plane 路徑失效，請在接下來的管理視窗重新選擇路徑並按「安裝 / 套用」。'), 'XP Optimus Bypass')
-        Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $env:LOCALAPPDATA 'XP Optimus Bypass Installer\0.9.2\app\manager.ps1') + '"')
+        Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $env:LOCALAPPDATA 'XP Optimus Bypass Installer\0.9.3\app\manager.ps1') + '"')
         exit 1
     }
     if (Get-Process -Name 'X-Plane' -ErrorAction SilentlyContinue) { throw (T 'X-Plane 已在執行，請使用目前的遊戲視窗。') }
@@ -54,6 +54,24 @@ try {
         try { $loaded = [string](@($process.Modules | Where-Object { $_.FileName -ieq (Join-Path $PSScriptRoot 'xp_optimus_bypass.dll') }).Count -gt 0) } catch { }
         Write-Diagnostic ('No fresh DLL log. Process exited: ' + $process.HasExited + '; expected DLL loaded: ' + $loaded)
         [void][Windows.Forms.MessageBox]::Show(('No fresh DLL log was detected. This does not prove the bypass is active.' + "`r`n" + '未收到 DLL 新紀錄，請查看載入診斷。' + "`r`n" + $diagnostics), 'XP Optimus Bypass', 'OK', 'Warning')
+    }
+    # Anonymous compatibility report, once, after X-Plane has closed (if allowed in the manager).
+    $state = $null
+    $stateFile = Join-Path $PSScriptRoot 'install-state.json'
+    if (Test-Path -LiteralPath $stateFile) { try { $state = Get-Content -LiteralPath $stateFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch { } }
+    if ($state -and $state.reports -eq $true) {
+        . (Join-Path $PSScriptRoot 'report.ps1')
+        # Steam may restart X-Plane as a new process, so wait until no X-Plane process is left.
+        Start-Sleep -Seconds 20
+        while (Get-Process -Name 'X-Plane' -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 10 }
+        $logInfo = $null
+        if (Test-Path -LiteralPath $rootLog) { $logInfo = Get-Item -LiteralPath $rootLog }
+        if ($logInfo -and $logInfo.LastWriteTime -ge $startedAt.AddSeconds(-1)) {
+            $report = Get-XPReport (Split-Path -Parent $PSScriptRoot) ([string]$state.mode) ([string]$state.installerVersion)
+            [void](Send-XPReport $report $diagnostics)
+        } else {
+            Write-Diagnostic 'Report not sent: no DLL log from this session.'
+        }
     }
 } catch {
     [void][Windows.Forms.MessageBox]::Show(((T '無法啟動 X-Plane：') + $_.Exception.Message), 'XP Optimus Bypass', 'OK', 'Error')

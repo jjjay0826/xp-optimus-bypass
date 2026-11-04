@@ -61,7 +61,6 @@
   "X-Plane 已在執行，請使用目前的遊戲視窗。": "X-Plane is already running. Please use the existing game window.",
   "無法啟動 X-Plane：": "Unable to launch X-Plane: ",
   "已解除安裝，可直接在此視窗重新安裝。": "Uninstalled. You can install again from this window.",
-  "安裝介面 0.9.2  ·  核心 DLL 0.9.2  ·  目前 Windows 使用者": "Installer 0.9.2  |  DLL 0.9.2  |  Current Windows user",
   "3. 安裝位置（請選擇有寫入權限的資料夾）": "3. Install location (choose a folder you can write to)",
   "選擇資料夾…": "Browse folder...",
   "選擇本工具專用的安裝資料夾（可建立新資料夾）。": "Choose a dedicated install folder (you can create a new folder).",
@@ -70,5 +69,18 @@
   "請為本工具選擇獨立的子資料夾。": "Choose a dedicated subfolder for this tool.",
   "安裝位置不能包含或位於保留的安裝來源內。": "The destination cannot contain or be inside the retained installer source.",
   "安裝位置必須是資料夾。": "The installation location must be a directory.",
-  "若要更換安裝位置，請先解除安裝，再選擇新位置重新安裝。": "To change the installed location, uninstall first, then choose the new folder and reinstall."
+  "若要更換安裝位置，請先解除安裝，再選擇新位置重新安裝。": "To change the installed location, uninstall first, then choose the new folder and reinstall.",
+  "安裝介面 {0}  ·  核心 DLL {1}  ·  目前 Windows 使用者": "Installer {0}  |  DLL {1}  |  Current Windows user",
+  "進階：顯示全域模式（不建議）": "Advanced: show Global mode (not recommended)",
+  "全域模式": "Global mode",
+  "全域模式會讓你 Windows 帳號下所有 Vulkan 程式載入這個沒有數位簽章的 DLL。有反作弊的線上遊戲可能把它當成作弊程式，甚至封鎖帳號。一般使用請選「僅 X-Plane」。確定要使用全域模式？": "Global mode makes every Vulkan program of your Windows account load this unsigned DLL. Online games with anti-cheat may treat it as a cheat and may even ban the account. For normal use choose \"X-Plane only\". Use Global mode anyway?",
+  "傳送匿名相容性回報（X-Plane 關閉後）": "Send anonymous compatibility reports (after X-Plane closes)",
+  "查看會傳送什麼": "See what is sent",
+  "已開啟匿名相容性回報。": "Anonymous compatibility reports are on.",
+  "已關閉匿名相容性回報，不會再傳送任何資料。": "Anonymous compatibility reports are off. Nothing will be sent.",
+  "相容性回報內容": "Compatibility report",
+  "還沒有這次執行的紀錄。用專用入口啟動 X-Plane 飛一下，關閉後再開啟這個視窗。": "No log from a session yet. Start X-Plane with the dedicated launcher, fly for a while, close it, then open this window again.",
+  "自動回報只會送出下面這些欄位（不含路徑、使用者名稱、電腦名稱）。": "Automatic reports send only the fields below (no paths, user name or computer name).",
+  "複製": "Copy",
+  "在 GitHub 回報": "Report on GitHub"
 }

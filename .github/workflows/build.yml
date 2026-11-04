@@ -2,12 +2,12 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'dev-*']
   pull_request:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Existing release to receive the installer (v0.9.2); empty = build only'
+        description: 'Existing release to receive the installer (e.g. v0.9.3-beta); empty = build only'
         required: false
         default: ''
       source_ref:
@@ -75,6 +75,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.sha }}
       - uses: actions/download-artifact@v4
         with:
           name: XP_Optimus_Bypass_v${{ needs.build.outputs.version }}
@@ -118,7 +122,29 @@ jobs:
           } finally {
             if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
           }
-          Write-Host 'Windows syntax, language and destination boundary checks passed; manual X-Plane/installer tests remain required.'
+          # report module: parse a sample log, check the sanitizing and the fields
+          . (Join-Path $app 'report.ps1')
+          $fx = Join-Path $env:TEMP ('xpob-report-' + [guid]::NewGuid().ToString('N'))
+          [IO.Directory]::CreateDirectory($fx) | Out-Null
+          Copy-Item -LiteralPath (Join-Path $PWD 'src\installer\tests\sample.log') -Destination (Join-Path $fx 'xp_optimus_bypass.log')
+          $r = Get-XPReport $fx 'xplane' '0.9.3'
+          $json = ConvertTo-XPReportJson $r
+          Write-Host $json
+          if ($r.layer -ne '0.9.3-beta') { throw 'report: layer version' }
+          if ($r.render_gpu -ne 'NVIDIA GeForce GTX 1650' -or $r.render_driver -ne '595.97') { throw 'report: render GPU' }
+          if ($r.intel_gpu -ne 'Intel(R) UHD Graphics') { throw 'report: Intel GPU' }
+          if ($r.windows -ne '10.0.26300' -or $r.xplane -ne '12.4.3.11') { throw 'report: versions' }
+          if ($r.screens -ne 1 -or $r.intel_screens -ne 1 -or $r.window_on_intel -ne $true) { throw 'report: screens' }
+          if ($r.result -ne 'bypass') { throw ('report: result ' + $r.result) }
+          if ($r.fps.bypass.fps -ne 38.2 -or $r.fps.bypass.windows -ne 2) { throw ('report: bypass fps ' + $r.fps.bypass.fps) }
+          if (-not $r.probe -or $r.probe.selected -ne 'bypass') { throw 'report: probe' }
+          if ($r.overlays -notcontains 'GameOverlayVulkanLayer64.dll' -or $r.overlays -notcontains 'SteamOverlayVulkanLayer64.json') { throw 'report: overlays' }
+          if ($json -match 'bob|Users|secret|USERPROFILE|[A-Za-z]:\\') { throw 'report: personal data or a path leaked' }
+          if ($json.Length -gt 4000) { throw 'report: too large' }
+          $text = Get-XPReportText $r $fx
+          if (-not $text.Contains('render_gpu: NVIDIA GeForce GTX 1650')) { throw 'report: text' }
+          Remove-Item -LiteralPath $fx -Recurse -Force
+          Write-Host 'Windows syntax, language, destination boundary and report checks passed; manual X-Plane/installer tests remain required.'
 
   publish:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
@@ -148,11 +174,7 @@ jobs:
           digest = hashlib.sha256(pathlib.Path(z).read_bytes()).hexdigest()
           run = os.environ['GITHUB_SERVER_URL']+'/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID']
           block = '\n<!-- ci-installer-begin -->\n'
-          block += '### GUI installer update / 圖形安裝介面更新\n\n'
-          block += '- English default / 繁體中文選擇；single entry / 單一入口；reinstall support / 可重新安裝。\n'
-          block += '- Direct root logging with per-message flush and a live viewer / 直接寫第一層 log、逐筆刷新與即時檢視。\n'
-          block += '- This installer includes rebuilt logging code. DLL version is 0.9.2; this release includes the logging update. / 本包重新編譯 log 修正，DLL 版本為 0.9.2，校驗碼重新產生。\n'
-          block += '- Installer source is recorded in the build run linked below. / 安裝來源以本次建置紀錄為準，會列出對應的原始碼 commit。\n'
+          block += '### Build / 建置\n\n'
           block += f'- Asset: `{z}`\n- SHA-256: `{digest}`\n- [Build and source commit / 建置與原始碼 commit]({run})\n'
           block += f'- Verify / 驗證: `gh attestation verify {z} -R '+os.environ['GITHUB_REPOSITORY']+'`\n'
           block += '- DLL checksum / DLL 校驗碼：see `app/xp_optimus_bypass.dll` in the packaged `SHA256SUMS.txt`.\n'

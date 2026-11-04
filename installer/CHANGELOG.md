@@ -1,3 +1,16 @@
+# 0.9.3 / Installer — 2026-11-04 (DLL 0.9.3-beta)
+
+- Global mode moved under an advanced checkbox and confirmed with an anti-cheat warning.
+- Detects a ZIP that was not extracted and restricted (Constrained Language) PowerShell; removes the download mark
+  from its own files; `installer-error.log` records PowerShell / Windows version and the script stack.
+- New `fallback` folder: install / uninstall / start X-Plane without PowerShell.
+- Anonymous compatibility reports: checkbox on by default, "See what is sent" preview, can be switched off at any time
+  without reinstalling; the launcher sends one report after X-Plane closes. The log window has a Report button to
+  copy the same report or open a GitHub issue.
+- 全域模式移到「進階」並需確認反作弊警告。
+- 偵測未解壓縮直接執行、PowerShell 受限；錯誤紀錄更完整；新增不需 PowerShell 的 fallback 資料夾。
+- 匿名相容性回報：預設開啟、可預覽內容、隨時關閉；X-Plane 關閉後由啟動器送出一次。紀錄視窗新增「產生回報」。
+
 ## Configurable install location / 可選擇安裝位置
 
 - Editable destination and folder picker, in both languages.

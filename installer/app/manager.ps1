@@ -17,6 +17,7 @@ $script:Language = $Language
 . (Join-Path $PSScriptRoot 'core.ps1')
 . (Join-Path $PSScriptRoot 'discovery.ps1')
 . (Join-Path $PSScriptRoot 'log-viewer.ps1')
+. (Join-Path $PSScriptRoot 'report.ps1')
 # Prevent concurrent installers/managers from changing the same registration.
 $mutex = New-Object Threading.Mutex($false, 'Local\XPOptimusBypassInstaller')
 $ownsMutex = $false
@@ -60,7 +61,8 @@ $languageChoice.DropDownStyle = 'DropDownList'
 $languageChoice.SelectedIndex = 0
 if ($script:Language -eq 'zh-TW') { $languageChoice.SelectedIndex = 1 }
 $form.Controls.Add($languageChoice)
-$subtitle = Add-Label (T '安裝介面 0.9.2  ·  核心 DLL 0.9.2  ·  目前 Windows 使用者') 26 58 710 28
+function Get-SubtitleText { return ((T '安裝介面 {0}  ·  核心 DLL {1}  ·  目前 Windows 使用者') -f $script:InstallerVersion, $script:DllVersion) }
+$subtitle = Add-Label (Get-SubtitleText) 26 58 710 28
 $stateLabel = Add-Label '' 26 91 710 28
 $null = Add-Label (T '1. X-Plane 安裝位置') 26 127 710 26
 $pathCombo = New-Object Windows.Forms.ComboBox
@@ -77,18 +79,32 @@ $modeGroup.SetBounds(26, 280, 706, 132)
 $form.Controls.Add($modeGroup)
 $xplaneRadio = New-Object Windows.Forms.RadioButton
 $xplaneRadio.Text = (T '僅 X-Plane（建議）— 從專用捷徑啟動時載入')
-$xplaneRadio.SetBounds(16, 20, 674, 28)
+$xplaneRadio.SetBounds(16, 18, 674, 28)
 $xplaneRadio.Checked = $true
 $modeGroup.Controls.Add($xplaneRadio)
+# Global mode is an advanced option: hidden until asked for, and confirmed with the anti-cheat warning.
+$advanced = New-Object Windows.Forms.CheckBox
+$advanced.Text = (T '進階：顯示全域模式（不建議）')
+$advanced.SetBounds(16, 52, 674, 28)
+$modeGroup.Controls.Add($advanced)
 $globalRadio = New-Object Windows.Forms.RadioButton
 $globalRadio.Text = (T '全域 — 所有 Vulkan 程式載入，僅在 X-Plane 中作用')
-$globalRadio.SetBounds(16, 53, 674, 28)
+$globalRadio.SetBounds(16, 86, 674, 28)
+$globalRadio.Visible = $false
+$globalRadio.ForeColor = [Drawing.Color]::FromArgb(150, 75, 0)
 $modeGroup.Controls.Add($globalRadio)
-$warning = New-Object Windows.Forms.Label
-$warning.Text = (T '全域模式可能影響反作弊相容性；玩此類 Vulkan 遊戲前請改用僅 X-Plane 模式。')
-$warning.ForeColor = [Drawing.Color]::FromArgb(150, 75, 0)
-$warning.SetBounds(19, 88, 670, 35)
-$modeGroup.Controls.Add($warning)
+$script:ConfirmingGlobal = $false
+$advanced.Add_CheckedChanged({
+    $globalRadio.Visible = $advanced.Checked
+    if (-not $advanced.Checked -and $globalRadio.Checked) { $xplaneRadio.Checked = $true }
+})
+$globalRadio.Add_CheckedChanged({
+    if (-not $globalRadio.Checked -or $script:ConfirmingGlobal -or $script:LoadingState) { return }
+    $script:ConfirmingGlobal = $true
+    $answer = [Windows.Forms.MessageBox]::Show($form, (T '全域模式會讓你 Windows 帳號下所有 Vulkan 程式載入這個沒有數位簽章的 DLL。有反作弊的線上遊戲可能把它當成作弊程式，甚至封鎖帳號。一般使用請選「僅 X-Plane」。確定要使用全域模式？'), (T '全域模式'), 'YesNo', 'Warning', 'Button2')
+    if ($answer -ne 'Yes') { $xplaneRadio.Checked = $true }
+    $script:ConfirmingGlobal = $false
+})
 $null = Add-Label (T '3. 安裝位置（請選擇有寫入權限的資料夾）') 26 424 710 26
 $location = New-Object Windows.Forms.TextBox
 $location.ReadOnly = $false; $location.Text = $script:InstallRoot
@@ -109,13 +125,20 @@ $desktop.SetBounds(26, 494, 310, 30); $form.Controls.Add($desktop)
 $runAfter = New-Object Windows.Forms.CheckBox
 $runAfter.Text = (T '安裝完成後啟動 X-Plane'); $runAfter.Checked = $false
 $runAfter.SetBounds(350, 494, 380, 30); $form.Controls.Add($runAfter)
-$status = Add-Label (T '請確認路徑與模式，再按「安裝」。') 26 535 706 43
-$install = Add-Button (T '安裝') 26 588 130
-$launch = Add-Button (T '啟動 X-Plane') 166 588 130
-$logs = Add-Button (T '紀錄與說明') 306 588 130
-$remove = Add-Button (T '解除安裝') 446 588 130
-$close = Add-Button (T '關閉') 602 588 130
-$null = Add-Label (T '安裝後可刪除下載資料夾；請保留固定安裝位置。模式變更需重新啟動 X-Plane。') 26 633 706 28
+# Anonymous compatibility reports: on by default, visible, and can be switched off at any time.
+$reports = New-Object Windows.Forms.CheckBox
+$reports.Text = (T '傳送匿名相容性回報（X-Plane 關閉後）'); $reports.Checked = $true
+$reports.SetBounds(26, 524, 390, 28); $form.Controls.Add($reports)
+$reportInfo = New-Object Windows.Forms.LinkLabel
+$reportInfo.Text = (T '查看會傳送什麼'); $reportInfo.SetBounds(426, 528, 306, 24)
+$form.Controls.Add($reportInfo)
+$status = Add-Label (T '請確認路徑與模式，再按「安裝」。') 26 556 706 32
+$install = Add-Button (T '安裝') 26 594 130
+$launch = Add-Button (T '啟動 X-Plane') 166 594 130
+$logs = Add-Button (T '紀錄與說明') 306 594 130
+$remove = Add-Button (T '解除安裝') 446 594 130
+$close = Add-Button (T '關閉') 602 594 130
+$null = Add-Label (T '安裝後可刪除下載資料夾；請保留固定安裝位置。模式變更需重新啟動 X-Plane。') 26 638 706 28
 
 function Show-Error([string]$Message) {
     [void][Windows.Forms.MessageBox]::Show($form, $Message, (T '操作未完成'), 'OK', 'Error')
@@ -190,7 +213,7 @@ $install.Add_Click({
         Stop-Search
         $mode = 'xplane'
         if ($globalRadio.Checked) { $mode = 'global' }
-        Install-XPBypass -SourceApp $PSScriptRoot -Mode $mode -XPlanePath $pathCombo.Text -DesktopShortcut $desktop.Checked -DestinationRoot $location.Text
+        Install-XPBypass -SourceApp $PSScriptRoot -Mode $mode -XPlanePath $pathCombo.Text -DesktopShortcut $desktop.Checked -DestinationRoot $location.Text -Reports $reports.Checked
         $location.Text = $script:InstallRoot
         Update-State
         $status.Text = (T '安裝完成。可從桌面或開始功能表啟動；模式與路徑已儲存。')
@@ -202,6 +225,22 @@ $install.Add_Click({
     finally { $script:Busy = $false; $install.Enabled = $true }
 })
 $launch.Add_Click({ try { Start-InstalledXPlane } catch { Show-Error $_.Exception.Message } })
+$reports.Add_CheckedChanged({
+    if ($script:LoadingState) { return }
+    try {
+        if (Get-InstallState) {
+            Set-ReportConsent $reports.Checked
+            if ($reports.Checked) { $status.Text = (T '已開啟匿名相容性回報。') } else { $status.Text = (T '已關閉匿名相容性回報，不會再傳送任何資料。') }
+        }
+    } catch { Show-Error $_.Exception.Message }
+})
+$reportInfo.Add_LinkClicked({
+    try {
+        $st = Get-InstallState; $m = ''; $v = $script:InstallerVersion
+        if ($st) { $m = [string]$st.mode }
+        Show-XPReportWindow $script:InstallRoot $form $m $v
+    } catch { Show-Error $_.Exception.Message }
+})
 $logs.Add_Click({
     try { Show-XPLogWindow -Root $script:InstallRoot -Owner $form }
     catch { Show-Error $_.Exception.Message }
@@ -228,11 +267,14 @@ $form.Add_FormClosing({ param($sender, $eventArgs)
     $timer.Stop(); Stop-Search
 })
 $state = Get-InstallState
+$script:LoadingState = $true
 if ($state) {
     $pathCombo.Text = [string]$state.xplane
+    if ($state.mode -eq 'global') { $advanced.Checked = $true }
     $globalRadio.Checked = $state.mode -eq 'global'
     $xplaneRadio.Checked = $state.mode -ne 'global'
     $desktop.Checked = [bool]$state.desktopShortcut
+    if ($null -ne $state.reports) { $reports.Checked = [bool]$state.reports }
 } else {
     # Pick up the path saved by the previous portable launcher beside this package.
     foreach ($base in @($PSScriptRoot, (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) , (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))))) {
@@ -243,11 +285,13 @@ if ($state) {
         }
     }
 }
+$script:LoadingState = $false
 Update-State
 $languageChoice.Add_SelectedIndexChanged({
     $script:Language = 'en'
     if ($languageChoice.SelectedIndex -eq 1) { $script:Language = 'zh-TW' }
     Update-ControlLanguage $form
+    $subtitle.Text = Get-SubtitleText
     Update-State
     if ($script:SearchJob) { $searchLabel.Text = T '搜尋中…若常見位置未找到，會繼續搜尋本機磁碟。' }
     else { $searchLabel.Text = (T '已找到 ') + $pathCombo.Items.Count + (T ' 個位置。多套安裝可從下拉選單選擇。') }

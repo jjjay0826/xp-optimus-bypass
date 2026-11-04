@@ -7,14 +7,18 @@ OUT="$PWD/XP_Optimus_Bypass_v${VER}.zip"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 D="$TMP/XP_Optimus_Bypass"
-mkdir -p "$D/app" "$D/docs"
+mkdir -p "$D/app" "$D/docs" "$D/fallback"
 for name in XP_Optimus_Bypass.bat README.txt LICENSE CHANGELOG.md; do
     cp "installer/$name" "$D/$name"
 done
-for name in bootstrap.ps1 core.ps1 manager.ps1 discovery.ps1 launch.ps1 i18n.ps1 i18n.json log-viewer.ps1; do
+for name in bootstrap.ps1 core.ps1 manager.ps1 discovery.ps1 launch.ps1 i18n.ps1 i18n.json log-viewer.ps1 report.ps1; do
     cp "installer/app/$name" "$D/app/$name"
 done
 cp installer/docs/*.md "$D/docs/"
+# installation without PowerShell, for PCs where the GUI installer cannot run
+for name in install.bat uninstall.bat start_xplane.bat README.txt; do
+    cp "installer/fallback/$name" "$D/fallback/$name"
+done
 for name in xp_optimus_bypass.dll xp_optimus_bypass.ini xp_optimus_bypass.json xp_optimus_bypass_global.json; do
     cp "dist/$name" "$D/app/$name"
 done

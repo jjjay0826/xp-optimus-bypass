@@ -1,4 +1,4 @@
-﻿XP Optimus Bypass | DLL 0.9.2 | Installer 0.9.2
+﻿XP Optimus Bypass | DLL 0.9.3-beta | Installer 0.9.3
 https://github.com/jjjay0826/xp-optimus-bypass
 
 ENGLISH
@@ -7,7 +7,9 @@ ENGLISH
 3. Choose shortcut / launch-after-install options and click Install.
 English is the default; select 繁體中文 at the top right to switch.
 Use the same window to launch, change mode or uninstall. Close X-Plane before maintenance.
-Global mode loads the DLL into all Vulkan apps for your user and may conflict with anti-cheat.
+Global mode (Advanced) loads the DLL into all Vulkan apps for your user and may conflict with anti-cheat.
+Anonymous compatibility reports are on by default; switch them off in the manager. "See what is sent" shows the content.
+If the installer cannot start (restricted PowerShell), use the fallback folder (install.bat).
 
 Choose the install folder by typing or Browse folder. Default: %LOCALAPPDATA%\Programs\XP Optimus Bypass
 An existing installation remembers its folder. To move it, uninstall first and reinstall.
@@ -18,7 +20,7 @@ The actual root xp_optimus_bypass.log is created by the rebuilt DLL and flushed 
 FPS records are produced every 300 frames, not every second. Save logs before restarting.
 launcher-diagnostics.log records launch requests, registration and missing DLL output.
 The extracted download folder does NOT contain a placeholder log.
-Uninstall keeps reusable installer sources under %LOCALAPPDATA%\XP Optimus Bypass Installer\0.9.2.
+Uninstall keeps reusable installer sources under %LOCALAPPDATA%\XP Optimus Bypass Installer\0.9.3.
 Windows/X-Plane runtime verification remains required. This update changes logging code.
 
 繁體中文
@@ -26,7 +28,9 @@ Windows/X-Plane runtime verification remains required. This update changes loggi
 2. 確認遊戲路徑，選擇僅 X-Plane（建議）或全域。
 3. 設定捷徑與安裝後啟動選項，再按安裝。預設英文，右上角可切換繁體中文。
 同一視窗可啟動、切換模式、解除安裝；維護前先關閉 X-Plane。
-全域模式會讓目前使用者所有 Vulkan 程式載入 DLL，可能影響反作弊相容性。
+全域模式（進階）會讓目前使用者所有 Vulkan 程式載入 DLL，可能影響反作弊相容性。
+匿名相容性回報預設開啟，可在管理視窗關閉；「查看會傳送什麼」可看實際內容。
+安裝介面打不開（PowerShell 受限）時，請改用 fallback 資料夾的 install.bat。
 
 安裝位置可輸入或按「選擇資料夾」；預設：%LOCALAPPDATA%\Programs\XP Optimus Bypass
 已安裝的位置會自動記住。換位置請先解除安裝再重裝。log 在所選安裝位置第一層。

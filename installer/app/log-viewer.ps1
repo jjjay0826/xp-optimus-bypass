@@ -21,6 +21,16 @@
     $pathLabel.Dock = 'Bottom'; $pathLabel.Height = 45
     $pathLabel.Text = $Root + "`r`nRefresh: 1 second / 每秒更新；FPS samples: every 300 frames / FPS 每 300 幀統計。"
     $window.Controls.Add($pathLabel)
+    $reportButton = New-Object Windows.Forms.Button
+    $reportButton.Text = 'Report / 產生回報'
+    $reportButton.Dock = 'Bottom'; $reportButton.Height = 34
+    $reportButton.Add_Click({
+        $state = Get-InstallState
+        $mode = ''; $ver = ''
+        if ($state) { $mode = [string]$state.mode; $ver = [string]$state.installerVersion }
+        Show-XPReportWindow $Root $window $mode $ver
+    }.GetNewClosure())
+    $window.Controls.Add($reportButton)
     $refresh = {
         foreach ($name in $views.Keys) {
             $path = Join-Path $Root $name

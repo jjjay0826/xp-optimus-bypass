@@ -1,5 +1,6 @@
 ﻿$script:ProductName = 'XP Optimus Bypass'
-$script:InstallerVersion = '0.9.2'
+$script:InstallerVersion = '0.9.3'
+$script:DllVersion = '0.9.3-beta'
 $script:LayerKey = 'HKCU:\Software\Khronos\Vulkan\ImplicitLayers'
 $script:UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\XPOptimusBypass'
 $script:RootFiles = @('XP_Optimus_Bypass.bat', 'README.txt', 'LICENSE', 'CHANGELOG.md')
@@ -39,6 +40,16 @@ function Get-InstallState {
     if (Test-Path -LiteralPath $file -PathType Leaf) {
         try { return (Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { return $null }
     }
+}
+# Turn automatic anonymous reports on or off without reinstalling.
+function Set-ReportConsent([bool]$Enabled) {
+    $file = Join-Path $script:AppDir 'install-state.json'
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return }
+    $state = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
+    $table = @{}
+    foreach ($prop in $state.PSObject.Properties) { $table[$prop.Name] = $prop.Value }
+    $table['reports'] = $Enabled
+    $table | ConvertTo-Json | Set-Content -LiteralPath $file -Encoding UTF8
 }
 function Assert-OwnedRoot {
     if (Test-Path -LiteralPath $script:InstallRoot) {
@@ -96,7 +107,7 @@ function Start-InstalledXPlane {
     $launcher = Join-Path $script:AppDir 'launch.ps1'
     Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ('-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launcher + '"') -ErrorAction Stop
 }
-function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath, [bool]$DesktopShortcut, [string]$DestinationRoot) {
+function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath, [bool]$DesktopShortcut, [string]$DestinationRoot, [bool]$Reports = $true) {
     $target = Resolve-InstallDestination $DestinationRoot $SourceApp
     $registered = Get-ItemProperty -LiteralPath $script:UninstallKey -ErrorAction SilentlyContinue
     if ($registered -and $registered.InstallLocation -and $target -ine ([string]$registered.InstallLocation).TrimEnd('\')) {
@@ -108,7 +119,7 @@ function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath
     if (-not $exe) { throw (T '請選擇含有 X-Plane.exe 的有效安裝位置。') }
     Assert-OwnedRoot
     Assert-XPlaneClosed
-    $required = @('bootstrap.ps1', 'i18n.ps1', 'i18n.json', 'log-viewer.ps1', 'core.ps1', 'manager.ps1', 'discovery.ps1', 'launch.ps1', 'xp_optimus_bypass.dll',
+    $required = @('bootstrap.ps1', 'i18n.ps1', 'i18n.json', 'log-viewer.ps1', 'report.ps1', 'core.ps1', 'manager.ps1', 'discovery.ps1', 'launch.ps1', 'xp_optimus_bypass.dll',
                   'xp_optimus_bypass.ini', 'xp_optimus_bypass.json', 'xp_optimus_bypass_global.json')
     foreach ($name in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $SourceApp $name) -PathType Leaf)) { throw (T '安裝檔不完整，缺少：') + $name }
@@ -164,7 +175,7 @@ function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath
         $oldIni = Join-Path $script:AppDir 'xp_optimus_bypass.ini'
         if (Test-Path -LiteralPath $oldIni) { Copy-Item -LiteralPath $oldIni -Destination $stage -Force }
         Set-Content -LiteralPath (Join-Path $stage 'xplane_path.txt') -Value $exe -Encoding UTF8
-        @{mode=$Mode; xplane=$exe; desktopShortcut=$DesktopShortcut; installerVersion=$script:InstallerVersion; dllVersion='0.9.2'} |
+        @{mode=$Mode; xplane=$exe; desktopShortcut=$DesktopShortcut; reports=$Reports; installerVersion=$script:InstallerVersion; dllVersion=$script:DllVersion} |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'install-state.json') -Encoding UTF8
         if (Test-Path -LiteralPath $script:AppDir) {
             Move-Item -LiteralPath $script:AppDir -Destination $backup
@@ -193,7 +204,7 @@ function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath
         }
         New-Item -Path $script:UninstallKey -Force | Out-Null
         $uninstall = '"' + (Join-Path $PSHOME 'powershell.exe') + '" -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $SourceApp 'manager.ps1') + '" -Uninstall'
-        $values = @{DisplayName='XP Optimus Bypass'; DisplayVersion=('0.9.2 (Installer ' + $script:InstallerVersion + ')'); InstallLocation=$script:InstallRoot;
+        $values = @{DisplayName='XP Optimus Bypass'; DisplayVersion=($script:DllVersion + ' (Installer ' + $script:InstallerVersion + ')'); InstallLocation=$script:InstallRoot;
             UninstallString=$uninstall; DisplayIcon=($exe + ',0'); Publisher='XP Optimus Bypass'; InstallDate=(Get-Date -Format 'yyyyMMdd')}
         foreach ($name in $values.Keys) { New-ItemProperty -LiteralPath $script:UninstallKey -Name $name -Value $values[$name] -PropertyType String -Force | Out-Null }
         foreach ($name in @('NoModify', 'NoRepair')) { New-ItemProperty -LiteralPath $script:UninstallKey -Name $name -Value 1 -PropertyType DWord -Force | Out-Null }

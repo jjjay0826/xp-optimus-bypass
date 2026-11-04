@@ -27,6 +27,10 @@ Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3
 - **Installer 0.9.3:** Global mode is an advanced option with an anti-cheat confirmation; detects running from inside
   the ZIP and restricted PowerShell; more detail in `installer-error.log`; `fallback` folder installs without
   PowerShell.
+- **No freeze on a stuck Intel driver:** Intel fence and acquire waits have a time limit (5 s / 2 s); after that the
+  Intel side counts as failed, the layer never waits on it again and switches to the native path. A watchdog writes
+  `[hang]` lines (where X-Plane's thread and the worker are) when no frame is shown for 3 s. The trial host-import
+  block is kept until teardown (freeing it right away made an old Intel driver report a lost device).
 - **Steam installs:** Steam restarted X-Plane when the launcher started it, and the restarted process did not load the
   "X-Plane only" layer. The launcher now puts a `steam_appid.txt` (the app id from Steam's appmanifest) next to
   `X-Plane.exe` if none is there, so X-Plane starts directly (Steam must be running); uninstall removes only a file it

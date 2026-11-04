@@ -74,6 +74,22 @@ static std::mutex g_logLock;
 static LARGE_INTEGER g_freq;
 static thread_local bool g_internalCreate = false;
 static std::atomic<bool> g_intelBroken{false};    // Intel side failed: native path for the rest of the session
+static std::atomic<bool> g_intelHung{false};      // an Intel wait timed out: never wait on the Intel device again
+
+// Where each thread is, for the hang watchdog (see startWatchdog).
+enum { XS_OUTSIDE, XS_ACQUIRE_WAIT, XS_PRESENT, XS_SWITCH, XS_N_ACQUIRE, XS_N_PRESENT, XS_N_FENCE };
+static const char* kXStage[] = {"in X-Plane itself (outside the layer)", "waiting for a free image (worker busy)",
+                                "in the layer's present", "switching path", "NVIDIA acquire (native)",
+                                "NVIDIA present (native)", "waiting for an earlier native copy"};
+enum { WS_IDLE, WS_OLD_GF, WS_OLD_INTEL, WS_GF_SUBMIT, WS_GF_FENCE, WS_CPU_COPY, WS_I_SWAPCHAIN, WS_I_ACQUIRE,
+       WS_I_SUBMIT, WS_I_PRESENT };
+static const char* kWStage[] = {"idle", "waiting for an earlier GeForce copy", "waiting for an earlier Intel copy",
+                                "GeForce submit", "waiting for the GeForce copy", "CPU copy",
+                                "Intel swapchain (re)creation", "Intel acquire", "Intel submit", "Intel present"};
+static std::atomic<int> g_xStage{XS_OUTSIDE}, g_wStage{WS_IDLE}, g_curPath{-1};
+static std::atomic<long long> g_lastFrameMs{0}, g_wStageMs{0};
+static double nowMs();
+static void setWStage(int st);
 static std::atomic<bool> g_virtualBroken{false};  // native path inside the layer failed: real swapchains only
 static bool g_haveIntelVk = false;                // X-Plane's Vulkan instance sees an Intel GPU
 
@@ -102,6 +118,11 @@ static double nowMs() {
     LARGE_INTEGER t;
     QueryPerformanceCounter(&t);
     return double(t.QuadPart) * 1000.0 / double(g_freq.QuadPart);
+}
+
+static void setWStage(int st) {
+    g_wStage = st;
+    g_wStageMs = (long long)nowMs();
 }
 
 static std::string utf8(const std::wstring& w) {
@@ -845,6 +866,7 @@ static IntelCtx* intelCreate(HWND hwnd) {
 
 static void intelDestroy(IntelCtx* c) {
     if (!c) return;
+    if (g_intelHung) return;  // a hung driver could block here; the process ends soon anyway
     if (c->dev) {
         c->vkDeviceWaitIdle(c->dev);
         if (c->pool) c->vkDestroyCommandPool(c->dev, c->pool, nullptr);
@@ -1103,13 +1125,34 @@ static bool mappedBuffer(VkDevice dev, VkDeviceSize size, VkBufferUsageFlags usa
     return map(dev, *mem, 0, VK_WHOLE_SIZE, 0, ptr) == VK_SUCCESS && *ptr;
 }
 
+// Wait for an Intel fence, but never forever: an old or broken Intel driver must not freeze X-Plane. After 5 s
+// the Intel device counts as hung; the layer then never waits on it again and uses the native path.
+static bool intelFenceWait(VSwap* s, VkFence f) {
+    IntelCtx* c = s->ic;
+    if (g_intelHung) return false;
+    double t0 = nowMs();
+    for (;;) {
+        VkResult r = c->vkWaitForFences(c->dev, 1, &f, VK_TRUE, 500ull * 1000 * 1000);
+        if (r == VK_SUCCESS) return true;
+        if (r != VK_TIMEOUT || nowMs() - t0 > 5000.0) {
+            if (!g_intelHung.exchange(true))
+                logf("[hang] Intel GPU did not finish a copy (%s after %.1f s) -> not waiting on Intel any more",
+                     r == VK_TIMEOUT ? "timeout" : "error", (nowMs() - t0) / 1000.0);
+            return false;
+        }
+    }
+}
+
+static void intelIdleDevice(IntelCtx* c) {
+    if (!g_intelHung) c->vkDeviceWaitIdle(c->dev);
+}
+
 static void waitIntelIdle(VSwap* s) {
     IntelCtx* c = s->ic;
     if (!c) return;
     for (int k = 0; k < VSwap::R; ++k)
         if (s->iFenceUsed[k]) {
-            c->vkWaitForFences(c->dev, 1, &s->iFence[k], VK_TRUE, UINT64_MAX);
-            c->vkResetFences(c->dev, 1, &s->iFence[k]);
+            if (intelFenceWait(s, s->iFence[k])) c->vkResetFences(c->dev, 1, &s->iFence[k]);
             s->iFenceUsed[k] = false;
         }
 }
@@ -1117,8 +1160,8 @@ static void waitIntelIdle(VSwap* s) {
 static void dropIntelSwapchain(VSwap* s) {
     if (!s->ic || !s->iswap) return;
     waitIntelIdle(s);
-    s->ic->vkDeviceWaitIdle(s->ic->dev);
-    s->ic->vkDestroySwapchainKHR(s->ic->dev, s->iswap, nullptr);
+    intelIdleDevice(s->ic);
+    s->ic->vkDestroySwapchainKHR(s->ic->dev, s->iswap, nullptr);  // even when hung: the window is needed for native
     s->iswap = VK_NULL_HANDLE;
     s->iImgs.clear();
     s->iRecreate = true;
@@ -1165,6 +1208,7 @@ static void intelFailure(VSwap* s, const char* what, VkResult r);
 // (Re)create the Intel swapchain if needed. Worker thread, or X-Plane's thread while the worker is idle.
 static bool ensureIntelSwapchain(VSwap* s) {
     IntelCtx* c = s->ic;
+    if (g_intelHung) return false;
     if (s->iswap && !s->iRecreate) return true;
     VkSurfaceCapabilitiesKHR caps;
     VkResult cr = c->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(c->pd, c->surface, &caps);
@@ -1192,16 +1236,15 @@ static bool ensureIntelSwapchain(VSwap* s) {
     VkSwapchainKHR ns = VK_NULL_HANDLE;
     VkResult r = c->vkCreateSwapchainKHR(c->dev, &sc, nullptr, &ns);
     if (r != VK_SUCCESS) {
-        VkResult idle = c->vkDeviceWaitIdle(c->dev);
         logf("[diag] Intel swapchain request: %ux%u format %d colorspace %d images %u (caps min %u max %u) present mode %d "
-             "transform 0x%x old %s | Intel device after the failure: %d", e.width, e.height, (int)sc.imageFormat,
-             (int)sc.imageColorSpace, cnt, caps.minImageCount, caps.maxImageCount, (int)sc.presentMode,
-             (unsigned)sc.preTransform, s->iswap ? "yes" : "no", (int)idle);
+             "transform 0x%x old %s", e.width, e.height, (int)sc.imageFormat, (int)sc.imageColorSpace, cnt,
+             caps.minImageCount, caps.maxImageCount, (int)sc.presentMode, (unsigned)sc.preTransform,
+             s->iswap ? "yes" : "no");
         intelFailure(s, "swapchain creation", r);
         return false;
     }
     if (s->iswap) {
-        c->vkDeviceWaitIdle(c->dev);
+        intelIdleDevice(c);
         c->vkDestroySwapchainKHR(c->dev, s->iswap, nullptr);
     }
     s->iswap = ns;
@@ -1236,11 +1279,11 @@ static void destroyBypass(VSwap* s) {
     VkDevice dev = d->device;
     for (int k = 0; k < VSwap::R; ++k)
         if (s->fenceUsed[k]) d->vkWaitForFences(dev, 1, &s->fence[k], VK_TRUE, UINT64_MAX);
-    if (s->ic) {
+    if (s->ic && !g_intelHung) {  // hung Intel device: leak its objects rather than block X-Plane
         IntelCtx* c = s->ic;
         waitIntelIdle(s);
-        if (s->iswap) {
-            c->vkDeviceWaitIdle(c->dev);
+        if (s->iswap && !g_intelHung) {
+            intelIdleDevice(c);
             c->vkDestroySwapchainKHR(c->dev, s->iswap, nullptr);
             s->iswap = VK_NULL_HANDLE;
         }
@@ -1804,16 +1847,18 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     VkDevice dev = d->device;
     uint32_t k = s->ring++ % VSwap::R;
     if (s->fenceUsed[k]) {
+        setWStage(WS_OLD_GF);
         d->vkWaitForFences(dev, 1, &s->fence[k], VK_TRUE, UINT64_MAX);
         d->vkResetFences(dev, 1, &s->fence[k]);
         s->fenceUsed[k] = false;
     }
     if (s->iFenceUsed[k]) {
-        c->vkWaitForFences(c->dev, 1, &s->iFence[k], VK_TRUE, UINT64_MAX);
-        c->vkResetFences(c->dev, 1, &s->iFence[k]);
+        setWStage(WS_OLD_INTEL);
+        if (intelFenceWait(s, s->iFence[k])) c->vkResetFences(c->dev, 1, &s->iFence[k]);
+        else { intelFailure(s, "copy (no answer)", VK_ERROR_DEVICE_LOST); s->iTsPending[k] = false; }
         s->iFenceUsed[k] = false;
     }
-    if (s->iTsPending[k]) {  // Intel GPU time of the frame that used this slot last
+    if (s->iTsPending[k] && !g_intelHung) {  // Intel GPU time of the frame that used this slot last
         uint64_t t[2] = {0, 0};
         if (c->vkGetQueryPoolResults(c->dev, s->iQ, 2 * k, 2, sizeof(t), t, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) ==
             VK_SUCCESS) {
@@ -1840,6 +1885,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
         si.pSignalSemaphores = &sig;
     }
     VkResult sr;
+    setWStage(WS_GF_SUBMIT);
     {
         std::lock_guard<std::mutex> lk(d->copyQLock);
         sr = d->vkQueueSubmit(d->copyQueue, 1, &si, s->fence[k]);
@@ -1852,9 +1898,10 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
         if (okImg) { s->v[i].copyPending = (sr == VK_SUCCESS); s->v[i].state = 0; }
     }
     s->cv.notify_all();
-    if (!okImg || !s->fenceUsed[k]) return;
+    if (!okImg || !s->fenceUsed[k]) { setWStage(WS_IDLE); return; }
 
     // 2) wait until the frame is in the transfer buffer
+    setWStage(WS_GF_FENCE);
     double a = nowMs();
     d->vkWaitForFences(dev, 1, &s->fence[k], VK_TRUE, UINT64_MAX);
     d->vkResetFences(dev, 1, &s->fence[k]);
@@ -1866,10 +1913,11 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
             VK_SUCCESS)
             tGpu = tsMs(t[0], t[1], s->nvMask, s->nvPeriod);
     }
-    if (g_intelBroken) return;  // waiting for X-Plane's thread to switch to native
+    if (g_intelBroken) { setWStage(WS_IDLE); return; }  // waiting for X-Plane's thread to switch to native
 
     // 3) CPU copy when the two GPUs do not share one block of memory
     if (s->nvPtr[k] != s->iPtr[k]) {
+        setWStage(WS_CPU_COPY);
         a = nowMs();
         if (!s->nvCoherent) {
             VkMappedMemoryRange mr{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
@@ -1894,19 +1942,31 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
         intelFailure(s, "simulated (test switch)", VK_ERROR_DEVICE_LOST);
         return;
     }
-    if (!ensureIntelSwapchain(s)) return;  // minimized (or failed, see intelFailure): drop this frame
+    setWStage(WS_I_SWAPCHAIN);
+    if (!ensureIntelSwapchain(s)) { setWStage(WS_IDLE); return; }  // minimized (or failed): drop this frame
     uint32_t r = 0;
+    setWStage(WS_I_ACQUIRE);
     a = nowMs();
-    VkResult ar = c->vkAcquireNextImageKHR(c->dev, s->iswap, UINT64_MAX, s->iAcq[k], VK_NULL_HANDLE, &r);
+    const uint64_t kAcqTimeout = 2000ull * 1000 * 1000;  // 2 s: an Intel acquire must never freeze X-Plane
+    VkResult ar = c->vkAcquireNextImageKHR(c->dev, s->iswap, kAcqTimeout, s->iAcq[k], VK_NULL_HANDLE, &r);
     if (ar == VK_ERROR_OUT_OF_DATE_KHR) {
         s->iRecreate = true;
-        if (!ensureIntelSwapchain(s)) return;
-        ar = c->vkAcquireNextImageKHR(c->dev, s->iswap, UINT64_MAX, s->iAcq[k], VK_NULL_HANDLE, &r);
+        setWStage(WS_I_SWAPCHAIN);
+        if (!ensureIntelSwapchain(s)) { setWStage(WS_IDLE); return; }
+        setWStage(WS_I_ACQUIRE);
+        ar = c->vkAcquireNextImageKHR(c->dev, s->iswap, kAcqTimeout, s->iAcq[k], VK_NULL_HANDLE, &r);
     }
     double tAcq = nowMs() - a;
+    if (ar == VK_TIMEOUT || ar == VK_NOT_READY) {
+        logf("[hang] Intel acquire gave no image within 2 s -> treating the Intel side as failed");
+        intelFailure(s, "acquire (timeout)", VK_ERROR_DEVICE_LOST);
+        setWStage(WS_IDLE);
+        return;
+    }
     if (ar < 0 || r >= s->iImgs.size()) {
         s->iRecreate = true;
         intelFailure(s, "acquire", ar < 0 ? ar : VK_ERROR_UNKNOWN);
+        setWStage(WS_IDLE);
         return;
     }
     if (ar == VK_SUBOPTIMAL_KHR) s->iRecreate = true;
@@ -1920,8 +1980,9 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     is.pCommandBuffers = &s->iCb[k];
     is.signalSemaphoreCount = 1;
     is.pSignalSemaphores = &s->iReady[k];
+    setWStage(WS_I_SUBMIT);
     VkResult isr = c->vkQueueSubmit(c->q, 1, &is, s->iFence[k]);
-    if (isr != VK_SUCCESS) { intelFailure(s, "submit", isr); return; }
+    if (isr != VK_SUCCESS) { intelFailure(s, "submit", isr); setWStage(WS_IDLE); return; }
     s->iFenceUsed[k] = true;
     s->iTsPending[k] = s->iQ != VK_NULL_HANDLE;
     VkPresentInfoKHR p{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -1930,9 +1991,11 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     p.swapchainCount = 1;
     p.pSwapchains = &s->iswap;
     p.pImageIndices = &r;
+    setWStage(WS_I_PRESENT);
     a = nowMs();
     VkResult pr = c->vkQueuePresentKHR(c->q, &p);
     double tPres = nowMs() - a;
+    setWStage(WS_IDLE);
     if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) s->iRecreate = true;
     if (pr < 0 && pr != VK_ERROR_OUT_OF_DATE_KHR) intelFailure(s, "present", pr);
     else s->failRun = 0;
@@ -1967,8 +2030,10 @@ static VkResult vAcquire(VSwap* s, VkSemaphore sem, VkFence fence, uint32_t* pIn
                 if (s->v[j].state == 0) { i = j; found = true; break; }
             }
             if (found) break;
-            s->cv.wait(lk);
+            g_xStage = XS_ACQUIRE_WAIT;
+            s->cv.wait_for(lk, std::chrono::milliseconds(200));
         }
+        g_xStage = XS_OUTSIDE;
         waited = nowMs() - w0;
         s->v[i].state = 1;
         s->nextV = (i + 1) % V;
@@ -2027,6 +2092,7 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
     }
     uint32_t k = s->nRing++ % VSwap::R;
     if (s->nFenceUsed[k]) {
+        g_xStage = XS_N_FENCE;
         d->vkWaitForFences(d->device, 1, &s->nFence[k], VK_TRUE, UINT64_MAX);
         d->vkResetFences(d->device, 1, &s->nFence[k]);
         s->nFenceUsed[k] = false;
@@ -2041,6 +2107,7 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
         s->nTsPending[k] = false;
     }
     uint32_t ri = 0;
+    g_xStage = XS_N_ACQUIRE;
     double a = nowMs();
     VkResult ar = d->vkAcquireNextImageKHR(d->device, s->nswap, UINT64_MAX, s->nAcq[k], VK_NULL_HANDLE, &ri);
     if (ar == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -2085,9 +2152,11 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
     p.swapchainCount = 1;
     p.pSwapchains = &s->nswap;
     p.pImageIndices = &ri;
+    g_xStage = XS_N_PRESENT;
     a = nowMs();
     VkResult pr = d->vkQueuePresentKHR(queue, &p);
     double tPres = nowMs() - a;
+    g_xStage = XS_PRESENT;
     *tDriver = tAcq + tPres;
     {
         std::lock_guard<std::mutex> lk(s->perf.m);
@@ -2312,9 +2381,42 @@ static void reportWindow(VSwap* s) {
     probeWindow(s, p50, p95, mx);
 }
 
+// Logs where X-Plane's thread and the worker are when no frame has been presented for 3 s (and again at 15 s),
+// so a freeze leaves a trace in the log. Runs once per process; never touches Vulkan.
+static void startWatchdog() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        std::thread([] {
+            int logged = 0;
+            for (;;) {
+                Sleep(1000);
+                long long last = g_lastFrameMs.load();
+                if (last == 0) continue;
+                double now = nowMs(), gap = now - (double)last;
+                if (gap < 3000.0) {
+                    if (logged) logf("[hang] frames again after a %.1f s stall", gap / 1000.0);
+                    logged = 0;
+                    continue;
+                }
+                if ((logged == 0 && gap >= 3000.0) || (logged == 1 && gap >= 15000.0)) {
+                    int xs = g_xStage.load(), ws = g_wStage.load(), cp = g_curPath.load();
+                    logf("[hang] no frame for %.1f s | X-Plane's thread: %s | worker: %s for %.1f s | path %s%s",
+                         gap / 1000.0, kXStage[xs < 0 || xs > XS_N_FENCE ? 0 : xs],
+                         kWStage[ws < 0 || ws > WS_I_PRESENT ? 0 : ws], (now - (double)g_wStageMs.load()) / 1000.0,
+                         cp == PATH_BYPASS ? "bypass" : cp == PATH_NATIVE ? "native" : "-",
+                         g_intelHung ? " | Intel device not answering" : "");
+                    ++logged;
+                }
+            }
+        }).detach();
+    });
+}
+
 static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
     DevData* d = s->d;
     double t0 = nowMs();
+    startWatchdog();
+    g_xStage = XS_PRESENT;
     uint32_t i = pi->pImageIndices[0];
     // frame interval (counted unless just after a switch)
     {
@@ -2334,7 +2436,10 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
     if (want != s->path && i < s->v.size()) {
         const char* why = s->path == PATH_BYPASS && g_intelBroken ? "Intel failure" :
                           g_sess.probe == PROBE_RUN ? "probe" : nullptr;
-        if (!switchPath(s, want, why) && want == PATH_NATIVE && s->path == PATH_BYPASS && g_intelBroken &&
+        g_xStage = XS_SWITCH;
+        bool switched = switchPath(s, want, why);
+        g_xStage = XS_PRESENT;
+        if (!switched && want == PATH_NATIVE && s->path == PATH_BYPASS && g_intelBroken &&
             !g_virtualBroken) {
             logf("cannot switch to the native path either -> asking X-Plane to recreate its swapchain");
             g_virtualBroken = true;  // vAcquire now reports OUT_OF_DATE; X-Plane gets a real NVIDIA swapchain
@@ -2374,6 +2479,9 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
         report = s->perf.frame.v.size() >= 300;
     }
     if (report) reportWindow(s);
+    g_curPath = s->path;
+    g_lastFrameMs = (long long)nowMs();
+    g_xStage = XS_OUTSIDE;
     return res;
 }
 

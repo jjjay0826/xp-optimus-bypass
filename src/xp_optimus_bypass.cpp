@@ -23,6 +23,7 @@
 #include <dxgi.h>
 #include <dxgi1_5.h>
 #include <d3d12.h>
+#include <intrin.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
 
@@ -68,6 +69,7 @@ struct Config {
     bool forceCpuCopy = false;    // do not use VK_EXT_external_memory_host
     bool noExtraQueue = false;    // pretend the graphics family has no spare queue
     int failIntelAfter = 0;       // simulate an Intel failure after this many bypass frames
+    bool measure = false;         // measure_driver=1: time X-Plane's Vulkan calls into the driver (diagnostics)
     int intelOut = 0;             // Intel output: 0 auto (DXGI flip, else Vulkan), 1 DXGI only, 2 Vulkan only
     int bypassAfterNative = 0;    // 0: never return to the bypass once native output was shown on the window,
                                   // 1: return anyway (same Intel surface), 2: return with a fresh Intel surface
@@ -222,6 +224,7 @@ static void readIni() {
         else if (!_stricmp(k, "test_force_cpu_copy")) g_cfg.forceCpuCopy = iv != 0;
         else if (!_stricmp(k, "test_no_extra_queue")) g_cfg.noExtraQueue = iv != 0;
         else if (!_stricmp(k, "test_fail_intel_after")) g_cfg.failIntelAfter = iv > 0 ? iv : 0;
+        else if (!_stricmp(k, "measure_driver")) g_cfg.measure = iv != 0;
         else if (!_stricmp(k, "intel_output"))
             g_cfg.intelOut = !_stricmp(v, "dxgi") ? 1 : !_stricmp(v, "vulkan") ? 2 : 0;
         else if (!_stricmp(k, "test_bypass_after_native")) g_cfg.bypassAfterNative = iv < 0 ? 0 : iv > 2 ? 2 : iv;
@@ -722,6 +725,42 @@ static DxCtx* g_dx = nullptr;
 static bool g_dxTried = false;
 static std::string g_dxWhyNot;
 static std::atomic<DWORD> g_xpThread{0};  // X-Plane's render thread (DXGI swapchains are created only there)
+
+// ---------------------------------------------------------------- measure_driver=1
+// How much of X-Plane's render thread goes into the Vulkan driver, by kind of call. Every device function X-Plane
+// gets is wrapped (src/measure_hooks.inc, generated); a wrapper reads the time stamp counter around the call.
+// Diagnostics only: adds roughly 10-20 ns per call, and nothing else changes.
+enum { M_DRAW, M_DISPATCH, M_BIND, M_PASS, M_COPY, M_CMD, M_CB, M_DESC, M_SUBMIT, M_WAIT, M_MAP, M_PIPE, M_RES, M_N };
+static const char* kMName[M_N] = {"draw", "dispatch", "bind", "pass", "copy/barrier", "other cmd", "cmd buffer",
+                                  "descriptors", "submit", "wait", "map", "pipelines", "resources"};
+struct MAcc {
+    uint64_t t[M_N];
+    uint32_t n[M_N];
+};
+static MAcc g_mMain{};  // written only by X-Plane's render thread
+static std::atomic<uint64_t> g_mOtherT{0};
+static std::atomic<uint32_t> g_mOtherN{0};
+static inline void mAdd(int c, uint64_t dt) {
+    if (GetCurrentThreadId() == g_xpThread.load(std::memory_order_relaxed)) {
+        g_mMain.t[c] += dt;
+        g_mMain.n[c]++;
+    } else {
+        g_mOtherT.fetch_add(dt, std::memory_order_relaxed);
+        g_mOtherN.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+struct MeasureHook {
+    const char* name;
+    PFN_vkVoidFunction fn;
+    PFN_vkVoidFunction* next;
+};
+#include "measure_hooks.inc"
+static const void* g_mDev = nullptr;  // the device the wrappers belong to (X-Plane's)
+static const MeasureHook* findMeasure(const char* n) {
+    for (const MeasureHook& h : kMeasureHooks)
+        if (!strcmp(n, h.name)) return &h;
+    return nullptr;
+}
 
 template <typename T> static void rel(T*& p) {
     if (p) { p->Release(); p = nullptr; }
@@ -2778,6 +2817,73 @@ static void reportWindow(VSwap* s) {
     probeWindow(s, p50, p95, mx);
 }
 
+// Once per presented frame on X-Plane's thread: move this frame's driver times into the 300-frame window.
+static void mFrame() {
+    if (!g_cfg.measure) return;
+    static uint64_t tsc0 = 0;
+    static double ms0 = 0, otherMs = 0;
+    static uint64_t otherCalls = 0;
+    static std::vector<float> tot, calls, draws, cat[M_N];
+    static int frames = 0;
+    uint64_t tsc = __rdtsc();
+    double ms = nowMs();
+    if (!tsc0) { tsc0 = tsc; ms0 = ms; }
+    double tpm = ms - ms0 > 200.0 ? double(tsc - tsc0) / (ms - ms0) : 0.0;  // time stamp ticks per ms
+    MAcc a = g_mMain;
+    g_mMain = MAcc{};
+    uint64_t ot = g_mOtherT.exchange(0);
+    uint32_t on = g_mOtherN.exchange(0);
+    if (tpm <= 0) return;
+    double sum = 0;
+    uint32_t n = 0;
+    for (int c = 0; c < M_N; ++c) {
+        double v = a.t[c] / tpm;
+        cat[c].push_back((float)v);
+        sum += v;
+        n += a.n[c];
+    }
+    tot.push_back((float)sum);
+    calls.push_back((float)n);
+    draws.push_back((float)a.n[M_DRAW]);
+    otherMs += ot / tpm;
+    otherCalls += on;
+    if (++frames < 300) return;
+    auto pct = [](std::vector<float> v, double p) {
+        if (v.empty()) return 0.0;
+        std::sort(v.begin(), v.end());
+        return (double)v[std::min(v.size() - 1, (size_t)(p * (v.size() - 1) + 0.5))];
+    };
+    auto mean = [](const std::vector<float>& v) {
+        double t = 0;
+        for (float x : v) t += x;
+        return v.empty() ? 0.0 : t / v.size();
+    };
+    std::string line;
+    char b[256];
+    snprintf(b, sizeof(b), "[drv] X-Plane's thread in the driver per frame: p50 %.2f p95 %.2f ms | calls p50 %.0f "
+             "(draws %.0f)", pct(tot, 0.5), pct(tot, 0.95), pct(calls, 0.5), pct(draws, 0.5));
+    line = b;
+    for (int c = 0; c < M_N; ++c) {
+        double m = mean(cat[c]);
+        if (m < 0.005 && c != M_DRAW && c != M_SUBMIT) continue;
+        snprintf(b, sizeof(b), " | %s %.2f", kMName[c], m);
+        line += b;
+        if (c == M_PIPE) {
+            snprintf(b, sizeof(b), " (max %.1f)", pct(cat[c], 1.0));
+            line += b;
+        }
+    }
+    snprintf(b, sizeof(b), " | other threads %.2f ms, %.0f calls per frame", otherMs / frames,
+             (double)otherCalls / frames);
+    line += b;
+    logf("%s", line.c_str());
+    tot.clear(); calls.clear(); draws.clear();
+    for (auto& v : cat) v.clear();
+    frames = 0;
+    otherMs = 0;
+    otherCalls = 0;
+}
+
 // Logs where X-Plane's thread and the worker are when no frame has been presented for 3 s (and again at 15 s),
 // so a freeze leaves a trace in the log. Runs once per process; never touches Vulkan.
 static void startWatchdog() {
@@ -2895,6 +3001,7 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
         report = s->perf.frame.v.size() >= 300;
     }
     if (report) reportWindow(s);
+    mFrame();
     g_curPath = s->path;
     g_lastFrameMs = (long long)nowMs();
     g_xStage = XS_OUTSIDE;
@@ -3372,19 +3479,31 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit(VkQueue queue, uint32_t n, 
     DevData* d = devOf(key(queue));
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
     if (d->worker && signalsPending(d, n, s)) d->worker->flush();
-    return d->vkQueueSubmit(queue, n, s, f);
+    if (!g_cfg.measure) return d->vkQueueSubmit(queue, n, s, f);
+    uint64_t t0 = __rdtsc();
+    VkResult r = d->vkQueueSubmit(queue, n, s, f);
+    mAdd(M_SUBMIT, __rdtsc() - t0);
+    return r;
 }
 static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit2(VkQueue queue, uint32_t n, const VkSubmitInfo2* s, VkFence f) {
     DevData* d = devOf(key(queue));
     if (!d || !d->vkQueueSubmit2) return VK_ERROR_INITIALIZATION_FAILED;
     if (d->worker && signalsPending2(d, n, s)) d->worker->flush();
-    return d->vkQueueSubmit2(queue, n, s, f);
+    if (!g_cfg.measure) return d->vkQueueSubmit2(queue, n, s, f);
+    uint64_t t0 = __rdtsc();
+    VkResult r = d->vkQueueSubmit2(queue, n, s, f);
+    mAdd(M_SUBMIT, __rdtsc() - t0);
+    return r;
 }
 static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit2KHR(VkQueue queue, uint32_t n, const VkSubmitInfo2* s, VkFence f) {
     DevData* d = devOf(key(queue));
     if (!d || !d->vkQueueSubmit2KHR) return VK_ERROR_INITIALIZATION_FAILED;
     if (d->worker && signalsPending2(d, n, s)) d->worker->flush();
-    return d->vkQueueSubmit2KHR(queue, n, s, f);
+    if (!g_cfg.measure) return d->vkQueueSubmit2KHR(queue, n, s, f);
+    uint64_t t0 = __rdtsc();
+    VkResult r = d->vkQueueSubmit2KHR(queue, n, s, f);
+    mAdd(M_SUBMIT, __rdtsc() - t0);
+    return r;
 }
 static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueWaitIdle(VkQueue queue) {
     DevData* d = devOf(key(queue));
@@ -3569,7 +3688,10 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_QueuePresentKHR(VkQueue queue, const Vk
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
     if (d->active && pi->swapchainCount == 1)
         if (VSwap* vs = vsOf(pi->pSwapchains[0])) return vPresent(vs, queue, pi);
-    if (!g_isXPlane || !g_cfg.stats || d->internal) return d->vkQueuePresentKHR(queue, pi);
+    if (!g_isXPlane || d->internal) return d->vkQueuePresentKHR(queue, pi);
+    g_xpThread = GetCurrentThreadId();
+    mFrame();
+    if (!g_cfg.stats) return d->vkQueuePresentKHR(queue, pi);
 
     // no virtual swapchain: still measure, so mode=off and the layer's paths compare with the same numbers
     double t0 = nowMs();
@@ -3746,6 +3868,16 @@ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL XP_GetDeviceProcAddr(VkDevice de
     PFN_vkVoidFunction next = d->gdpa(device, pName);
     if (next)
         if (PFN_vkVoidFunction f = ourDeviceFn(pName)) return f;  // only hook what the driver supports
+    if (next && g_cfg.measure && g_isXPlane && !d->internal && (!g_mDev || g_mDev == d))
+        if (const MeasureHook* h = findMeasure(pName)) {
+            if (!g_mDev) {
+                g_mDev = d;
+                logf("[diag] measure_driver=1: timing X-Plane's Vulkan calls into the driver (%u functions available)",
+                     (unsigned)(sizeof(kMeasureHooks) / sizeof(kMeasureHooks[0])));
+            }
+            *h->next = next;
+            return h->fn;
+        }
     return next;
 }
 

@@ -27,6 +27,10 @@ Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3
 - **Installer 0.9.3:** Global mode is an advanced option with an anti-cheat confirmation; detects running from inside
   the ZIP and restricted PowerShell; more detail in `installer-error.log`; `fallback` folder installs without
   PowerShell.
+- **`measure_driver=1`** (diagnostics): every Vulkan device call X-Plane makes is timed (wrappers generated from the
+  Vulkan headers by `tools/gen_measure_hooks.py`); every 300 frames a `[drv]` line shows how many ms per frame
+  X-Plane's thread spends in the driver for draws, binds, render passes, copies/barriers, descriptors, submits, waits,
+  mapping and pipeline creation, plus calls and draw calls per frame.
 - **Intel output through DXGI flip mode (D3D12)**, new default (`intel_output=auto`): the Intel GPU shows the frame
   through a flip-model swapchain, reading the transfer block in place (`OpenExistingHeapFromAddress`) or through an
   upload buffer. Both paths now use flip mode, so the layer can switch native <-> bypass again and the probe is back

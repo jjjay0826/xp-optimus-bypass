@@ -8,7 +8,7 @@ CXX=${CXX:-x86_64-w64-mingw32-g++-win32}
 # -s strips at link time and --no-insert-timestamp keeps the PE header free of the build time,
 # so the same source and toolchain give a byte-identical DLL
 # build id = start of the source's SHA-256: shows in the log which build is installed, and stays reproducible
-SRCID=$(sha256sum src/xp_optimus_bypass.cpp | cut -c1-8)
+SRCID=$(cat src/xp_optimus_bypass.cpp src/measure_hooks.inc | sha256sum | cut -c1-8)
 "$CXX" -O2 -std=c++17 -DXPOB_BUILD="\"$SRCID\"" -shared -static -static-libgcc -static-libstdc++ -s -Wl,--no-insert-timestamp \
   -IVulkan-Headers/include src/xp_optimus_bypass.cpp -o dist/xp_optimus_bypass.dll -luser32 -lversion -ladvapi32
 echo "built dist/xp_optimus_bypass.dll (build $SRCID)"

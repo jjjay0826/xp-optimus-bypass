@@ -20,9 +20,26 @@ X-Plane, keep the log. Change only the listed INI lines, then set them back. / �
 | 12 | installer | Global hidden until Advanced is ticked; confirmation dialog; fallback folder install / start / uninstall works |
 | 13 | Steam copy: launcher (Steam running / not running) | `launcher-diagnostics.log`: `Steam direct start: created ...steam_appid.txt (2014780)`, DLL log present; without Steam: "start Steam first"; uninstall removes that `steam_appid.txt` |
 
+# Results / 驗收結果 (2026-11-04)
+
+ASUS TUF F15: i5-10300H, GTX 1650 (driver 595.97), UHD Graphics (driver 101.1999), Windows 11 build 26300,
+X-Plane 12.4.3. / 作者筆電實測。
+
+| Area | Result |
+|---|---|
+| Bypass, DXGI output, in-place import | pass: ~40-45 FPS vs native ~21-23 FPS at KSEA |
+| Native path; probe; switching native <-> bypass | pass (DXGI output); with the Intel Vulkan output the picture froze after native -> fixed by DXGI output |
+| `test_fail_intel_after=600` | pass: switched to native, X-Plane kept running |
+| `test_force_cpu_copy=1` + `test_no_extra_queue=1` | pass: CPU copy ~1.2 ms on the worker, transfer-only queue, ~40 FPS |
+| Window resize (incl. 1843 px wide, padded rows), minimize, Alt+Tab, windowed/fullscreen | pass |
+| Probe in flight only (menu / loading screen ignored) | pass after two fixes (see CHANGELOG) |
+| Installer notice, fresh install to default folder, uninstall, fallback folder install/start/uninstall | pass |
+| No leftover console windows; Steam direct start; anonymous report sent | pass |
+| Not tested: `test_force_blit`, Global mode, external / multiple monitors, HDR, VR, other laptops | - |
+
 # Runtime acceptance / 實機驗收
 
-These checks are pending until run on Windows with X-Plane. / 以下須在 Windows 實際驗收。
+The table above lists what was run on Windows with X-Plane. / 上表為已在 Windows 實測的項目。
 
 1. English defaults; switch to Traditional Chinese and back while retaining settings.
 2. Install, uninstall and reinstall in one window, then reopen the original BAT.

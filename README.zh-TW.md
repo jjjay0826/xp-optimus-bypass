@@ -148,6 +148,10 @@ Intel 端出錯時，layer 會在內部改用 NVIDIA 原生輸出直到這次結
 
 請到 [GitHub Issues](https://github.com/jjjay0826/xp-optimus-bypass/issues) 回報，附上版本、筆電型號、CPU／GPU、Windows 和驅動版本、啟用模式、相關 log 和重現步驟。效能比較請附上畫質設定和兩份測試 log。
 
+## 發布前怎麼測試
+
+GitHub Actions 會可重現地編譯和打包每個版本、在 Windows 上檢查安裝程式（語法、中英文字、安裝路徑安全、回報隱私），並附上建置來源證明。**但它不會跑顯示卡、Vulkan、D3D12 或 X-Plane。** 這部分是發布前在作者筆電上手動測的，結果和還沒測的項目都在 [installer/docs/TESTING.md](installer/docs/TESTING.md)。
+
 ## 驗證下載
 
 DLL 沒有數位簽章。在**解壓縮後的資料夾第一層**執行：

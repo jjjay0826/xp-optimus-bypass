@@ -186,6 +186,13 @@ GitHub issue.
 
 Report issues through [GitHub Issues](https://github.com/jjjay0826/xp-optimus-bypass/issues). Include the release version, laptop model, CPU/GPU, Windows and driver versions, activation mode, relevant logs and steps to reproduce. For performance comparisons, include graphics settings and both benchmark logs.
 
+## How releases are tested
+
+GitHub Actions builds and packages every release reproducibly, checks the installer scripts on Windows (syntax,
+English/Chinese text, install-path safety, report privacy) and attests the build. **It does not run a GPU, Vulkan,
+D3D12 or X-Plane.** Those tests are done by hand on the author's laptop before a release; the results are in
+[installer/docs/TESTING.md](installer/docs/TESTING.md), including what has not been tested.
+
 ## Verify the download
 
 The DLL is not digitally signed. From the **extracted package's root folder**, run:

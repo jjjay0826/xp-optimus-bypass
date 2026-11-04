@@ -158,7 +158,7 @@ closes**. It is **on by default** and shown in the installer; switch it off at a
   identifier. Reports from the same PC are not linked to each other.
 - The DLL never connects to the network; only the launcher does, once per session, and gives up on failure.
 - The server ([`server/`](server/)) stores only those fields and the day; it does not store IP addresses or request headers.
-- Until the report server is online, nothing is sent at all.
+- Aggregated results (per GPU combination) are public: <https://xpob-reports.jjjay0826.workers.dev/v1/summary>
 
 The manager's log window also has **Report**, which shows the same report so you can copy it into a forum post or a
 GitHub issue.

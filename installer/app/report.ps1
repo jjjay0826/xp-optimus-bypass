@@ -2,7 +2,7 @@
 # after X-Plane closes. Only the fields below are ever sent; no paths, user, computer or hardware serial numbers.
 
 # Set by the maintainer when the report server is online (see server/README.md). Empty = never send.
-$script:ReportEndpoint = ''
+$script:ReportEndpoint = 'https://xpob-reports.jjjay0826.workers.dev/v1/report'
 $script:ReportSchema = 1
 
 function Get-CleanText([string]$Text, [int]$Max = 120) {

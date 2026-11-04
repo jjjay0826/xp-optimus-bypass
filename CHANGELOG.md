@@ -29,7 +29,7 @@ Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3
   PowerShell.
 - **Anonymous compatibility reports** sent by the launcher after X-Plane closes: on by default, visible in the
   installer, can be switched off; only whitelisted fields, no paths or identifiers. Report server in `server/`
-  (Cloudflare Worker, stores no IP). Nothing is sent until the server address is set in `report.ps1`.
+  (Cloudflare Worker, stores no IP). Public aggregated results: https://xpob-reports.jjjay0826.workers.dev/v1/summary
 
 ## 0.9.1.1-beta — 2026-11-03
 

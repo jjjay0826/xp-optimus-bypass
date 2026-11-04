@@ -915,6 +915,11 @@ struct VSwap {
     VkDeviceMemory convMem[R]{};
     VkDeviceSize bytes = 0;
     void* host[R]{};
+    // trial host-import block: kept until the bypass is destroyed (older Intel drivers can lose the device when
+    // an imported block is freed right after the import)
+    void* trialHost = nullptr;
+    VkBuffer trialNvBuf = VK_NULL_HANDLE, trialIBuf = VK_NULL_HANDLE;
+    VkDeviceMemory trialNvMem = VK_NULL_HANDLE, trialIMem = VK_NULL_HANDLE;
     VkBuffer nvBuf[R]{};
     VkDeviceMemory nvMem[R]{};
     void* nvPtr[R]{};
@@ -1186,7 +1191,15 @@ static bool ensureIntelSwapchain(VSwap* s) {
     sc.oldSwapchain = s->iswap;
     VkSwapchainKHR ns = VK_NULL_HANDLE;
     VkResult r = c->vkCreateSwapchainKHR(c->dev, &sc, nullptr, &ns);
-    if (r != VK_SUCCESS) { intelFailure(s, "swapchain creation", r); return false; }
+    if (r != VK_SUCCESS) {
+        VkResult idle = c->vkDeviceWaitIdle(c->dev);
+        logf("[diag] Intel swapchain request: %ux%u format %d colorspace %d images %u (caps min %u max %u) present mode %d "
+             "transform 0x%x old %s | Intel device after the failure: %d", e.width, e.height, (int)sc.imageFormat,
+             (int)sc.imageColorSpace, cnt, caps.minImageCount, caps.maxImageCount, (int)sc.presentMode,
+             (unsigned)sc.preTransform, s->iswap ? "yes" : "no", (int)idle);
+        intelFailure(s, "swapchain creation", r);
+        return false;
+    }
     if (s->iswap) {
         c->vkDeviceWaitIdle(c->dev);
         c->vkDestroySwapchainKHR(c->dev, s->iswap, nullptr);
@@ -1241,7 +1254,15 @@ static void destroyBypass(VSwap* s) {
             if (s->iMem[k]) c->vkFreeMemory(c->dev, s->iMem[k], nullptr);  // also unmaps
         }
         if (s->iQ) c->vkDestroyQueryPool(c->dev, s->iQ, nullptr);
+        if (s->trialIBuf) c->vkDestroyBuffer(c->dev, s->trialIBuf, nullptr);
+        if (s->trialIMem) c->vkFreeMemory(c->dev, s->trialIMem, nullptr);
     }
+    if (s->trialNvBuf) d->vkDestroyBuffer(dev, s->trialNvBuf, nullptr);
+    if (s->trialNvMem) d->vkFreeMemory(dev, s->trialNvMem, nullptr);
+    if (s->trialHost) VirtualFree(s->trialHost, 0, MEM_RELEASE);
+    s->trialNvBuf = s->trialIBuf = VK_NULL_HANDLE;
+    s->trialNvMem = s->trialIMem = VK_NULL_HANDLE;
+    s->trialHost = nullptr;
     for (int k = 0; k < VSwap::R; ++k) {
         if (s->nvBuf[k]) d->vkDestroyBuffer(dev, s->nvBuf[k], nullptr);
         if (s->nvMem[k]) d->vkFreeMemory(dev, s->nvMem[k], nullptr);
@@ -1352,8 +1373,8 @@ static bool buildBypass(VSwap* s) {
                     logf("[diag] GeForce could not import host memory -> its own mapped memory + CPU copy");
                     nvImp = false;
                 }
-                if (b) d->vkDestroyBuffer(dev, b, nullptr);
-                if (m) d->vkFreeMemory(dev, m, nullptr);
+                s->trialNvBuf = b;
+                s->trialNvMem = m;
                 b = VK_NULL_HANDLE;
                 m = VK_NULL_HANDLE;
             }
@@ -1364,10 +1385,10 @@ static bool buildBypass(VSwap* s) {
                     logf("[diag] Intel could not import host memory -> its own mapped memory + CPU copy");
                     iImp = false;
                 }
-                if (b) c->vkDestroyBuffer(c->dev, b, nullptr);
-                if (m) c->vkFreeMemory(c->dev, m, nullptr);
+                s->trialIBuf = b;
+                s->trialIMem = m;
             }
-            VirtualFree(t, 0, MEM_RELEASE);
+            s->trialHost = t;  // freed in destroyBypass, after both devices released it
         } else {
             nvImp = iImp = false;
         }

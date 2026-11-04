@@ -65,7 +65,7 @@ The original investigation used an Intel 10th-generation laptop. Benefits on oth
 
 | Activation mode | How to start X-Plane |
 |---|---|
-| **X-Plane only — recommended** | Use **Launch X-Plane** in the manager or the dedicated shortcut. These enable the layer before starting the game. An ordinary X-Plane launch does not enable it. |
+| **X-Plane only — recommended** | Use **Launch X-Plane** in the manager or the dedicated shortcut. These enable the layer before starting the game. An ordinary X-Plane launch does not enable it. For Steam copies, the launcher adds a `steam_appid.txt` next to `X-Plane.exe` so Steam does not restart the game without the layer (Steam must be running; removed on uninstall). |
 | **Global** | Start X-Plane normally. Vulkan applications under the current Windows account load the DLL, but the bypass operates only inside `X-Plane.exe`. |
 
 The desktop shortcut is optional. In X-Plane-only mode, it provides a direct way to launch the game with the layer enabled, without first opening the manager. Global mode does not require that shortcut.

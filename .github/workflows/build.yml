@@ -122,6 +122,31 @@ jobs:
           } finally {
             if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
           }
+          # Steam direct start: create steam_appid.txt only when missing, remove only our own file
+          . (Join-Path $app 'discovery.ps1')
+          $steamTest = Join-Path $env:TEMP ('xpob steam ' + [guid]::NewGuid().ToString('N'))
+          try {
+            $xpDir = Join-Path $steamTest 'steamapps\common\X-Plane 12'
+            [IO.Directory]::CreateDirectory($xpDir) | Out-Null
+            Set-Content -LiteralPath (Join-Path $steamTest 'steamapps\appmanifest_2014780.acf') -Value ('"AppState"' + "`n{`n" + '  "appid"  "2014780"' + "`n" + '  "installdir"  "X-Plane 12"' + "`n}")
+            $fakeExe = Join-Path $xpDir 'X-Plane.exe'
+            Set-Content -LiteralPath $fakeExe -Value 'x'
+            if ((Get-SteamAppId $fakeExe) -ne '2014780') { throw 'Steam app id not found from appmanifest' }
+            $own = Join-Path $steamTest 'root'
+            [IO.Directory]::CreateDirectory($own) | Out-Null
+            [void](Enable-SteamDirectLaunch $fakeExe $own)
+            $appIdFile = Join-Path $xpDir 'steam_appid.txt'
+            if ((Get-Content -LiteralPath $appIdFile -Raw) -ne '2014780') { throw 'steam_appid.txt content wrong' }
+            Remove-SteamDirectLaunch $own
+            if (Test-Path -LiteralPath $appIdFile) { throw 'Own steam_appid.txt was not removed' }
+            Set-Content -LiteralPath $appIdFile -Value '2014780'
+            [void](Enable-SteamDirectLaunch $fakeExe $own)
+            Remove-SteamDirectLaunch $own
+            if (-not (Test-Path -LiteralPath $appIdFile)) { throw 'A steam_appid.txt that was already there was removed' }
+            if (Get-SteamAppId (Join-Path $env:TEMP 'X-Plane.exe')) { throw 'Non-Steam path got an app id' }
+          } finally {
+            if (Test-Path -LiteralPath $steamTest) { Remove-Item -LiteralPath $steamTest -Recurse -Force }
+          }
           # report module: parse a sample log, check the sanitizing and the fields
           . (Join-Path $app 'report.ps1')
           $fx = Join-Path $env:TEMP ('xpob-report-' + [guid]::NewGuid().ToString('N'))

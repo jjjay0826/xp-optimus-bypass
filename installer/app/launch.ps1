@@ -32,6 +32,11 @@ try {
     })
     if ($registered.Count -eq 0) { throw 'This installed DLL is not registered. Click Install / Apply. / 此 DLL 未登記，請先套用。' }
     Write-Diagnostic ('Registered manifest: ' + ($registered -join ', '))
+    if ((Get-SteamAppId $exe) -and -not (Get-Process -Name 'steam' -ErrorAction SilentlyContinue)) {
+        throw (T '請先開啟 Steam，再啟動 X-Plane。')
+    }
+    try { Write-Diagnostic ('Steam direct start: ' + (Enable-SteamDirectLaunch $exe $root)) }
+    catch { Write-Diagnostic ('Steam direct start: could not create steam_appid.txt: ' + $_.Exception.Message) }
     $env:XP_OPTIMUS_BYPASS_LOG = $rootLog
     $env:XP_OPTIMUS_BYPASS_ENABLE = '1'
     $startedAt = Get-Date
@@ -53,7 +58,13 @@ try {
         $loaded = 'unknown'
         try { $loaded = [string](@($process.Modules | Where-Object { $_.FileName -ieq (Join-Path $PSScriptRoot 'xp_optimus_bypass.dll') }).Count -gt 0) } catch { }
         Write-Diagnostic ('No fresh DLL log. Process exited: ' + $process.HasExited + '; expected DLL loaded: ' + $loaded)
+        $relaunched = @(Get-Process -Name 'X-Plane' -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $process.Id })
+        if ($process.HasExited -and $relaunched.Count -gt 0) {
+            Write-Diagnostic ('Steam restarted X-Plane as process ' + $relaunched[0].Id + '; the layer is not loaded in it.')
+            [void][Windows.Forms.MessageBox]::Show(((T 'Steam 重新啟動了 X-Plane，這次 layer 沒有載入。請關閉 X-Plane 後再啟動一次；若仍發生，請回報 launcher-diagnostics.log：') + "`r`n" + $diagnostics), 'XP Optimus Bypass', 'OK', 'Warning')
+        } else {
         [void][Windows.Forms.MessageBox]::Show(('No fresh DLL log was detected. This does not prove the bypass is active.' + "`r`n" + '未收到 DLL 新紀錄，請查看載入診斷。' + "`r`n" + $diagnostics), 'XP Optimus Bypass', 'OK', 'Warning')
+        }
     }
     # Anonymous compatibility report, once, after X-Plane has closed (if allowed in the manager).
     $state = $null

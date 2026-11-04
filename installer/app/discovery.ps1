@@ -88,3 +88,43 @@ function Find-OnLocalDrives {
     }
     Write-Progress -Activity 'Searching for X-Plane.exe' -Completed
 }
+
+# Steam relaunches X-Plane.exe when it is not started by Steam, and the relaunched process does not get the
+# launcher's environment, so the "X-Plane only" layer would not load. A steam_appid.txt next to X-Plane.exe makes
+# the Steam API accept the direct start (Steam must be running). We create it only when missing, remember that we
+# did, and remove only files we created on uninstall.
+function Get-SteamAppId([string]$Exe) {
+    $dir = Split-Path -Parent $Exe
+    $folder = Split-Path -Leaf $dir
+    $steamapps = Split-Path -Parent (Split-Path -Parent $dir)
+    if ((Split-Path -Leaf $steamapps) -ne 'steamapps') { return $null }
+    foreach ($acf in @(Get-ChildItem -LiteralPath $steamapps -Filter 'appmanifest_*.acf' -File -ErrorAction SilentlyContinue)) {
+        $text = Get-Content -LiteralPath $acf.FullName -Raw -ErrorAction SilentlyContinue
+        if ($text -and $text -match ('"installdir"\s+"' + [regex]::Escape($folder) + '"') -and $text -match '"appid"\s+"(\d+)"') { return $Matches[1] }
+    }
+    if ($folder -eq 'X-Plane 12') { return '2014780' }
+    if ($folder -eq 'X-Plane 11') { return '269950' }
+    return $null
+}
+function Enable-SteamDirectLaunch([string]$Exe, [string]$Root) {
+    $id = Get-SteamAppId $Exe
+    if (-not $id) { return 'not a Steam install' }
+    $file = Join-Path (Split-Path -Parent $Exe) 'steam_appid.txt'
+    if (Test-Path -LiteralPath $file) { return 'steam_appid.txt already present' }
+    [IO.File]::WriteAllText($file, $id)
+    Add-Content -LiteralPath (Join-Path $Root 'steam_appid_created.txt') -Value ($id + '|' + $file) -Encoding UTF8
+    return ('created ' + $file + ' (' + $id + ')')
+}
+function Remove-SteamDirectLaunch([string]$Root) {
+    $record = Join-Path $Root 'steam_appid_created.txt'
+    if (-not (Test-Path -LiteralPath $record)) { return }
+    foreach ($line in @(Get-Content -LiteralPath $record -Encoding UTF8)) {
+        $parts = ([string]$line).Split('|', 2)
+        if ($parts.Count -ne 2 -or [IO.Path]::GetFileName($parts[1]) -ne 'steam_appid.txt') { continue }
+        $file = $parts[1]
+        if ((Test-Path -LiteralPath $file -PathType Leaf) -and ((Get-Content -LiteralPath $file -Raw).Trim() -eq $parts[0])) {
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Remove-Item -LiteralPath $record -Force -ErrorAction SilentlyContinue
+}

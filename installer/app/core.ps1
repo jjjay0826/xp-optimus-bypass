@@ -318,7 +318,9 @@ function Uninstall-XPBypass {
         } catch { throw ($failure + (T "`r`n復原未完全成功，請保留資料夾並重新執行安裝：") + $_.Exception.Message) }
         throw ($failure + (T "`r`n解除安裝未完成，已復原先前狀態。"))
     }
-    # Deletion is last: the active registration is already removed. Never touch X-Plane files.
+    # Deletion is last: the active registration is already removed. The only X-Plane file touched is a
+    # steam_appid.txt that this tool created itself (see Enable-SteamDirectLaunch).
+    Remove-SteamDirectLaunch $script:InstallRoot
     if ($moved -or $docsMoved) { Remove-Item -LiteralPath $quarantine -Recurse -Force -ErrorAction SilentlyContinue }
     $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'XP Optimus Bypass'
     if ((Test-Path -LiteralPath $menu) -and @(Get-ChildItem -LiteralPath $menu -Force).Count -eq 0) { Remove-Item -LiteralPath $menu -Force -ErrorAction SilentlyContinue }

@@ -27,6 +27,10 @@ Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3
 - **Installer 0.9.3:** Global mode is an advanced option with an anti-cheat confirmation; detects running from inside
   the ZIP and restricted PowerShell; more detail in `installer-error.log`; `fallback` folder installs without
   PowerShell.
+- **Steam installs:** Steam restarted X-Plane when the launcher started it, and the restarted process did not load the
+  "X-Plane only" layer. The launcher now puts a `steam_appid.txt` (the app id from Steam's appmanifest) next to
+  `X-Plane.exe` if none is there, so X-Plane starts directly (Steam must be running); uninstall removes only a file it
+  created. If Steam still restarts X-Plane, the launcher says so instead of a generic warning.
 - **Anonymous compatibility reports** sent by the launcher after X-Plane closes: on by default, visible in the
   installer, can be switched off; only whitelisted fields, no paths or identifiers. Report server in `server/`
   (Cloudflare Worker, stores no IP). Public aggregated results: https://xpob-reports.jjjay0826.workers.dev/v1/summary

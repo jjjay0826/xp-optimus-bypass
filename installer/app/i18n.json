@@ -59,6 +59,8 @@
   "解除安裝完成。": "Uninstalled. The reusable installer is still available.",
   "X-Plane 路徑失效，請在接下來的管理視窗重新選擇路徑並按「安裝 / 套用」。": "The X-Plane path is invalid. Select a new path in the manager and click Install / Apply.",
   "X-Plane 已在執行，請使用目前的遊戲視窗。": "X-Plane is already running. Please use the existing game window.",
+  "請先開啟 Steam，再啟動 X-Plane。": "Please start Steam first, then start X-Plane.",
+  "Steam 重新啟動了 X-Plane，這次 layer 沒有載入。請關閉 X-Plane 後再啟動一次；若仍發生，請回報 launcher-diagnostics.log：": "Steam restarted X-Plane, so the layer is not loaded this time. Close X-Plane and start it again; if it happens again, please report launcher-diagnostics.log: ",
   "無法啟動 X-Plane：": "Unable to launch X-Plane: ",
   "已解除安裝，可直接在此視窗重新安裝。": "Uninstalled. You can install again from this window.",
   "3. 安裝位置（請選擇有寫入權限的資料夾）": "3. Install location (choose a folder you can write to)",

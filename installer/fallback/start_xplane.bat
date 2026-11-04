@@ -26,7 +26,28 @@ echo X-Plane: %XPEXE%
 echo (saved in xplane_path.txt - delete that file to choose another X-Plane)
 
 :run
+rem Steam restarts X-Plane.exe when it is not started by Steam, and the new process would not get the variables
+rem below. A steam_appid.txt next to X-Plane.exe lets it start directly (Steam must be running). Created only
+rem when missing, recorded in steam_appid_created.txt and removed by uninstall.bat.
+echo "%XPEXE%" | findstr /i /c:"steamapps" >nul || goto launch
+for %%F in ("%XPEXE%") do set "XPDIR=%%~dpF"
+for %%F in ("%XPDIR%.") do set "XPFOLDER=%%~nxF"
+set "APPID="
+if /i "%XPFOLDER%"=="X-Plane 12" set "APPID=2014780"
+if /i "%XPFOLDER%"=="X-Plane 11" set "APPID=269950"
+if not defined APPID goto launch
+tasklist /fi "imagename eq steam.exe" | findstr /i "steam.exe" >nul || echo Please start Steam first, then run this again.
+tasklist /fi "imagename eq steam.exe" | findstr /i "steam.exe" >nul || goto end
+if exist "%XPDIR%steam_appid.txt" goto launch
+>"%XPDIR%steam_appid.txt" <nul set /p "=%APPID%"
+>>"%~dp0steam_appid_created.txt" echo %APPID%^|%XPDIR%steam_appid.txt
+
+:launch
 del "%APP%\xp_optimus_bypass.log" >nul 2>&1
 set "XP_OPTIMUS_BYPASS_ENABLE=1"
 set "XP_OPTIMUS_BYPASS_LOG=%APP%\xp_optimus_bypass.log"
 for %%F in ("%XPEXE%") do start "" /D "%%~dpF." "%%~fF"
+goto :eof
+
+:end
+pause

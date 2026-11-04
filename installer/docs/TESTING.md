@@ -18,6 +18,7 @@ X-Plane, keep the log. Change only the listed INI lines, then set them back. / �
 | 10 | defaults + Steam overlay (Shift+Tab), RTSS, OBS (if available) | overlay names in `[diag]`; note whether the overlay shows and whether OBS records |
 | 11 | manager: report checkbox on, fly, close X-Plane | `launcher-diagnostics.log`: report sent / not sent (no server yet); Report window shows no paths or user name |
 | 12 | installer | Global hidden until Advanced is ticked; confirmation dialog; fallback folder install / start / uninstall works |
+| 13 | Steam copy: launcher (Steam running / not running) | `launcher-diagnostics.log`: `Steam direct start: created ...steam_appid.txt (2014780)`, DLL log present; without Steam: "start Steam first"; uninstall removes that `steam_appid.txt` |
 
 # Runtime acceptance / 實機驗收
 

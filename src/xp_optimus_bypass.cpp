@@ -2898,7 +2898,8 @@ static void startWatchdog() {
                 if (last == 0) continue;
                 double now = nowMs(), gap = now - (double)last;
                 if (gap < 3000.0) {
-                    if (logged) logf("[hang] frames again after a %.1f s stall", (double)(last - stallFrom) / 1000.0);
+                    if (logged && last > stallFrom)
+                        logf("[hang] frames again after a %.1f s stall", (double)(last - stallFrom) / 1000.0);
                     logged = 0;
                     continue;
                 }
@@ -2942,6 +2943,7 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
         }
     }
     decide(s, t0);
+    double tDecide = nowMs() - t0;
     int want = g_sess.want.load();
     if (want == PATH_BYPASS && s->path != PATH_BYPASS && g_nativeShown && !g_cfg.bypassAfterNative && s->bypassTried &&
         !s->useDx) {
@@ -3000,8 +3002,17 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
         s->perf.layer.add(nowMs() - t0 - driver);
         report = s->perf.frame.v.size() >= 300;
     }
+    double tRep = nowMs();
     if (report) reportWindow(s);
+    tRep = nowMs() - tRep;
     mFrame();
+    double tAll = nowMs() - t0;
+    if (tAll > 300.0) {  // a slow present on X-Plane's thread: say where the time went
+        static int n = 0;
+        if (++n <= 20)
+            logf("[slow] layer present took %.0f ms (screen check / path decision %.0f, driver %.0f, log %.0f, path %s)",
+                 tAll, tDecide, driver, tRep, pathName(s->path));
+    }
     g_curPath = s->path;
     g_lastFrameMs = (long long)nowMs();
     g_xStage = XS_OUTSIDE;

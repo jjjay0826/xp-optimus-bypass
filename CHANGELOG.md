@@ -27,6 +27,11 @@ Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3
 - **Installer 0.9.3:** Global mode is an advanced option with an anti-cheat confirmation; detects running from inside
   the ZIP and restricted PowerShell; more detail in `installer-error.log`; `fallback` folder installs without
   PowerShell.
+- **No return to the bypass after native output** (found on the test laptop): NVIDIA's native output puts the
+  window into DXGI flip mode, and an older Intel driver's output is then not shown any more, so the picture froze
+  while X-Plane kept running. The layer now stays native for the rest of the session once native output was shown;
+  therefore the native/bypass probe is **off by default** (`probe=0`) and needs `test_bypass_after_native=1/2`.
+  Reinstalling keeps `xpob_path_cache.txt`.
 - **No freeze on a stuck Intel driver:** Intel fence and acquire waits have a time limit (5 s / 2 s); after that the
   Intel side counts as failed, the layer never waits on it again and switches to the native path. A watchdog writes
   `[hang]` lines (where X-Plane's thread and the worker are) when no frame is shown for 3 s. The trial host-import

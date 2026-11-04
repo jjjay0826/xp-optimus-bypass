@@ -7,7 +7,7 @@ X-Plane, keep the log. Change only the listed INI lines, then set them back. / �
 | # | INI | Expected in the log / log 應該出現 |
 |---|---|---|
 | 1 | defaults | `[diag]` lines (GPUs with LUID, screens, queue families, swapchain request); `path -> bypass (start)`; `ACTIVE`; FPS lines with `path=bypass mem=shared` and P50/P95/P99; FPS about the same as 0.9.2 |
-| 2 | defaults, fly ~6 min | `probe:` lines, 4 measurements, then `selected bypass` (or native) with numbers; restart X-Plane: `path from earlier measurement` |
+| 2 | `probe=1` + `test_bypass_after_native=2`, fly ~6 min (picture must not freeze after switching back; if it does, try `=1`) | `probe:` lines, 4 measurements, then `selected bypass` (or native) with numbers; restart X-Plane: `path from earlier measurement` |
 | 3 | `path=native` | `path -> native`; FPS like without the layer (~20 at KSEA); `n_acq`/`n_pres` timings |
 | 4 | `test_force_blit=1` | `GeForce conversion blit to BGRA8`; picture and colors correct; FPS only slightly lower |
 | 5 | `test_force_cpu_copy=1` | `memory CPU copy (no host import)`; `cpu_copy` timings; picture correct |

@@ -109,7 +109,7 @@ Edit **`app/xp_optimus_bypass.ini` inside the installed folder**, then restart X
 | `vsync` | `0` — default, no refresh-rate cap and possible tearing; `1` — enable vertical synchronization. |
 | `stats` | `1` — default, record FPS and timings every 300 frames; `0` — disable performance-statistics logging. |
 | `path` (0.9.3) | `auto` — default: bypass while the window is on an Intel-driven screen (after the measured comparison), native otherwise; `bypass` / `native` — force one path; `cpu-copy` — bypass with a CPU copy (testing). |
-| `probe` (0.9.3) | `1` — default: measure native vs bypass once per setup; `0` — use the bypass whenever the window is on the Intel screen. Delete `xpob_path_cache.txt` to measure again. |
+| `probe` (0.9.3) | `0` — default: use the bypass whenever the window is on the Intel screen; `1` — measure native vs bypass once per setup (only with `test_bypass_after_native`, because after native output an older Intel driver's picture can stay frozen). Delete `xpob_path_cache.txt` to measure again. |
 | `test_*` (0.9.3) | Test switches, leave at `0`: `test_force_blit`, `test_force_cpu_copy`, `test_no_extra_queue`, `test_fail_intel_after=N` (simulates an Intel failure after N bypass frames). |
 
 The INI `mode` setting controls bypass behavior. It is separate from the installer's **X-Plane only / Global** choice, which controls how the DLL is loaded.

@@ -174,6 +174,8 @@ function Install-XPBypass([string]$SourceApp, [string]$Mode, [string]$XPlanePath
         # Preserve the user's graphics settings during reinstall / mode changes.
         $oldIni = Join-Path $script:AppDir 'xp_optimus_bypass.ini'
         if (Test-Path -LiteralPath $oldIni) { Copy-Item -LiteralPath $oldIni -Destination $stage -Force }
+        $oldCache = Join-Path $script:AppDir 'xpob_path_cache.txt'
+        if (Test-Path -LiteralPath $oldCache) { Copy-Item -LiteralPath $oldCache -Destination $stage -Force }
         Set-Content -LiteralPath (Join-Path $stage 'xplane_path.txt') -Value $exe -Encoding UTF8
         @{mode=$Mode; xplane=$exe; desktopShortcut=$DesktopShortcut; reports=$Reports; installerVersion=$script:InstallerVersion; dllVersion=$script:DllVersion} |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage 'install-state.json') -Encoding UTF8

@@ -56,12 +56,15 @@ struct Config {
     bool vsync = false;
     bool stats = true;
     int path = PREF_AUTO;
-    bool probe = true;            // measure native vs bypass before settling (path=auto only)
+    bool probe = false;           // measure native vs bypass before settling (path=auto only; needs
+                                  // test_bypass_after_native, see g_nativeShown)
     // test switches: let one laptop exercise every code path
     bool forceBlit = false;       // convert/scale through blits even when formats and sizes match
     bool forceCpuCopy = false;    // do not use VK_EXT_external_memory_host
     bool noExtraQueue = false;    // pretend the graphics family has no spare queue
     int failIntelAfter = 0;       // simulate an Intel failure after this many bypass frames
+    int bypassAfterNative = 0;    // 0: never return to the bypass once native output was shown on the window,
+                                  // 1: return anyway (same Intel surface), 2: return with a fresh Intel surface
 };
 static Config g_cfg;
 
@@ -75,6 +78,10 @@ static LARGE_INTEGER g_freq;
 static thread_local bool g_internalCreate = false;
 static std::atomic<bool> g_intelBroken{false};    // Intel side failed: native path for the rest of the session
 static std::atomic<bool> g_intelHung{false};      // an Intel wait timed out: never wait on the Intel device again
+// NVIDIA's native output puts the window into DXGI flip mode. Older Intel Vulkan drivers present the old way, which
+// Windows does not show on a window that has used flip mode: after native output the bypass would keep running
+// but the picture would stay frozen. So once native output was shown, the bypass does not come back (by default).
+static std::atomic<bool> g_nativeShown{false};
 
 // Where each thread is, for the hang watchdog (see startWatchdog).
 enum { XS_OUTSIDE, XS_ACQUIRE_WAIT, XS_PRESENT, XS_SWITCH, XS_N_ACQUIRE, XS_N_PRESENT, XS_N_FENCE };
@@ -209,6 +216,7 @@ static void readIni() {
         else if (!_stricmp(k, "test_force_cpu_copy")) g_cfg.forceCpuCopy = iv != 0;
         else if (!_stricmp(k, "test_no_extra_queue")) g_cfg.noExtraQueue = iv != 0;
         else if (!_stricmp(k, "test_fail_intel_after")) g_cfg.failIntelAfter = iv > 0 ? iv : 0;
+        else if (!_stricmp(k, "test_bypass_after_native")) g_cfg.bypassAfterNative = iv < 0 ? 0 : iv > 2 ? 2 : iv;
     }
     fclose(f);
     if (g_cfg.path == PREF_CPU_COPY) g_cfg.forceCpuCopy = true;
@@ -261,9 +269,10 @@ static void initOnce() {
     logf("XP Optimus Bypass %s loaded in X-Plane.exe | mode=%s path=%s probe=%d vsync=%d stats=%d", XPOB_VERSION,
          g_cfg.mode == MODE_OFF ? "off" : g_cfg.mode == MODE_ON ? "on" : "auto", prefNames[g_cfg.path],
          g_cfg.probe ? 1 : 0, g_cfg.vsync ? 1 : 0, g_cfg.stats ? 1 : 0);
-    if (g_cfg.forceBlit || g_cfg.forceCpuCopy || g_cfg.noExtraQueue || g_cfg.failIntelAfter)
+    if (g_cfg.forceBlit || g_cfg.forceCpuCopy || g_cfg.noExtraQueue || g_cfg.failIntelAfter || g_cfg.bypassAfterNative)
         logf("[diag] TEST SWITCHES: test_force_blit=%d test_force_cpu_copy=%d test_no_extra_queue=%d "
-             "test_fail_intel_after=%d", g_cfg.forceBlit, g_cfg.forceCpuCopy, g_cfg.noExtraQueue, g_cfg.failIntelAfter);
+             "test_fail_intel_after=%d test_bypass_after_native=%d", g_cfg.forceBlit, g_cfg.forceCpuCopy,
+             g_cfg.noExtraQueue, g_cfg.failIntelAfter, g_cfg.bypassAfterNative);
     char en[8] = {0};
     bool viaEnv = GetEnvironmentVariableA("XP_OPTIMUS_BYPASS_ENABLE", en, sizeof(en)) > 0;
     logf("started with XP_OPTIMUS_BYPASS_ENABLE=1 (dedicated launcher or launch option): %s", viaEnv ? "yes" : "no");
@@ -2157,6 +2166,7 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
     VkResult pr = d->vkQueuePresentKHR(queue, &p);
     double tPres = nowMs() - a;
     g_xStage = XS_PRESENT;
+    if (pr >= 0) g_nativeShown = true;
     *tDriver = tAcq + tPres;
     {
         std::lock_guard<std::mutex> lk(s->perf.m);
@@ -2183,6 +2193,18 @@ static bool switchPath(VSwap* s, int to, const char* why) {
         }
         if (!s->bypassOk) { g_sess.want = PATH_NATIVE; return false; }
         destroyNativeSwapchain(s);  // one swapchain per window at a time
+        if (g_nativeShown && g_cfg.bypassAfterNative == 2 && s->ic && !g_intelHung) {
+            IntelCtx* c = s->ic;
+            dropIntelSwapchain(s);
+            c->vkDestroySurfaceKHR(c->inst, c->surface, nullptr);
+            c->surface = VK_NULL_HANDLE;
+            VkWin32SurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
+            sci.hinstance = GetModuleHandleW(nullptr);
+            sci.hwnd = s->hwnd;
+            VkResult r = c->vkCreateWin32SurfaceKHR(c->inst, &sci, nullptr, &c->surface);
+            logf("[diag] test_bypass_after_native=2: fresh Intel surface for the return to the bypass (%d)", (int)r);
+            if (r != VK_SUCCESS) { c->surface = VK_NULL_HANDLE; g_sess.want = PATH_NATIVE; return false; }
+        }
         s->iRecreate = true;
         if (!ensureIntelSwapchain(s)) {
             static int n = 0;
@@ -2267,6 +2289,13 @@ static void decide(VSwap* s, double now) {
     if (!g_sess.onIntel || g_intelBroken || (s->bypassTried && !s->bypassOk)) { g_sess.want = PATH_NATIVE; return; }
     if (g_sess.probe == PROBE_OFF) {
         if (!g_cfg.probe) { g_sess.want = PATH_BYPASS; g_sess.probe = PROBE_DONE; return; }
+        if (!g_cfg.bypassAfterNative) {
+            logf("probe=1 is ignored: measuring native would switch the window to flip mode and the bypass could not "
+                 "come back (set test_bypass_after_native=1 or 2 to test that)");
+            g_sess.want = PATH_BYPASS;
+            g_sess.probe = PROBE_DONE;
+            return;
+        }
         g_sess.cacheKey = cacheKeyFor(s);
         int cached = cacheLookup(g_sess.cacheKey);
         if (cached >= 0) {
@@ -2388,23 +2417,26 @@ static void startWatchdog() {
     std::call_once(once, [] {
         std::thread([] {
             int logged = 0;
+            long long stallFrom = 0;
             for (;;) {
                 Sleep(1000);
                 long long last = g_lastFrameMs.load();
                 if (last == 0) continue;
                 double now = nowMs(), gap = now - (double)last;
                 if (gap < 3000.0) {
-                    if (logged) logf("[hang] frames again after a %.1f s stall", gap / 1000.0);
+                    if (logged) logf("[hang] frames again after a %.1f s stall", (double)(last - stallFrom) / 1000.0);
                     logged = 0;
                     continue;
                 }
+                if (logged == 0) stallFrom = last;
                 if ((logged == 0 && gap >= 3000.0) || (logged == 1 && gap >= 15000.0)) {
                     int xs = g_xStage.load(), ws = g_wStage.load(), cp = g_curPath.load();
                     logf("[hang] no frame for %.1f s | X-Plane's thread: %s | worker: %s for %.1f s | path %s%s",
                          gap / 1000.0, kXStage[xs < 0 || xs > XS_N_FENCE ? 0 : xs],
                          kWStage[ws < 0 || ws > WS_I_PRESENT ? 0 : ws], (now - (double)g_wStageMs.load()) / 1000.0,
                          cp == PATH_BYPASS ? "bypass" : cp == PATH_NATIVE ? "native" : "-",
-                         g_intelHung ? " | Intel device not answering" : "");
+                         g_intelHung ? " | Intel device not answering"
+                         : xs == XS_OUTSIDE && ws == WS_IDLE ? " (X-Plane busy, e.g. loading)" : "");
                     ++logged;
                 }
             }
@@ -2433,6 +2465,16 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
     }
     decide(s, t0);
     int want = g_sess.want.load();
+    if (want == PATH_BYPASS && s->path != PATH_BYPASS && g_nativeShown && !g_cfg.bypassAfterNative) {
+        static bool told = false;
+        if (!told) {
+            told = true;
+            logf("bypass not resumed: native output was already shown on this window, and Windows would keep showing "
+                 "the old picture (flip mode) -> staying native; restart X-Plane to use the bypass again");
+        }
+        g_sess.want = want = PATH_NATIVE;
+        if (g_sess.probe == PROBE_RUN || g_sess.probe == PROBE_WAIT_STABLE) g_sess.probe = PROBE_DONE;
+    }
     if (want != s->path && i < s->v.size()) {
         const char* why = s->path == PATH_BYPASS && g_intelBroken ? "Intel failure" :
                           g_sess.probe == PROBE_RUN ? "probe" : nullptr;

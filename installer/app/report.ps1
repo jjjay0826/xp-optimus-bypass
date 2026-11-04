@@ -82,7 +82,8 @@ function Get-XPReport([string]$Root, [string]$InstallMode = '', [string]$Install
         elseif ($line -match '^FPS ([\d.]+) \| path=(\S+).*?frame ms p50 ([\d.]+) p95 ([\d.]+) p99 ([\d.]+) max ([\d.]+) over50 (\d+)') {
             $p = $Matches[2] -replace '[^a-z-]', ''
             if (-not $fps.ContainsKey($p)) { $fps[$p] = New-Object 'System.Collections.Generic.List[object]' }
-            $fps[$p].Add(@([double]$Matches[1], [double]$Matches[3], [double]$Matches[4], [double]$Matches[5], [int]$Matches[7]))
+            $fps[$p].Add([pscustomobject]@{ fps = [double]$Matches[1]; p50 = [double]$Matches[3]; p95 = [double]$Matches[4]
+                                            p99 = [double]$Matches[5]; over50 = [double]$Matches[7] })
         }
         elseif ($line -match 'failed \(-?\d+\)' -and $r.errors.Count -lt 5) {
             $e = Get-CleanText $line 100
@@ -90,15 +91,15 @@ function Get-XPReport([string]$Root, [string]$InstallMode = '', [string]$Install
         }
     }
     foreach ($p in $fps.Keys) {
-        $w = @($fps[$p])
-        if ($w.Count -gt 1) { $w = @($w[1..($w.Count - 1)]) }  # the first window includes loading
+        $w = $fps[$p].ToArray()
+        if ($w.Count -gt 1) { $w = $fps[$p].GetRange(1, $w.Count - 1).ToArray() }  # the first window includes loading
         $r.fps[$p] = [ordered]@{
             windows = $w.Count
-            fps = Get-Median ([double[]]($w | ForEach-Object { $_[0] }))
-            p50_ms = Get-Median ([double[]]($w | ForEach-Object { $_[1] }))
-            p95_ms = Get-Median ([double[]]($w | ForEach-Object { $_[2] }))
-            p99_ms = Get-Median ([double[]]($w | ForEach-Object { $_[3] }))
-            over50_per_300 = Get-Median ([double[]]($w | ForEach-Object { $_[4] }))
+            fps = Get-Median ([double[]]@($w | ForEach-Object { $_.fps }))
+            p50_ms = Get-Median ([double[]]@($w | ForEach-Object { $_.p50 }))
+            p95_ms = Get-Median ([double[]]@($w | ForEach-Object { $_.p95 }))
+            p99_ms = Get-Median ([double[]]@($w | ForEach-Object { $_.p99 }))
+            over50_per_300 = Get-Median ([double[]]@($w | ForEach-Object { $_.over50 }))
         }
     }
     if ($r.mode -eq 'off') { $r.result = 'disabled' }

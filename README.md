@@ -4,11 +4,16 @@ A Vulkan layer for X-Plane 12 on Windows Optimus laptops where an NVIDIA GeForce
 
 ## Download
 
-**Current release: [0.9.3](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3)** — compatibility rework, tested on the author's ASUS TUF F15 (GTX 1650 + UHD Graphics, Windows 11). Other laptops have not been tested yet; the anonymous reports (see below) will show where it works.
+**Current release: [0.9.3.1](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3.1)** — the 0.9.3 compatibility rework plus time limits on the remaining waits, tested on the author's ASUS TUF F15 (GTX 1650 + UHD Graphics, Windows 11). Other laptops have not been tested yet; the anonymous reports (see below) will show where it works.
 
-Download **[XP_Optimus_Bypass_v0.9.3.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.3/XP_Optimus_Bypass_v0.9.3.zip)** for the installer. The automatically generated “Source code” archives are for developers. The previous version, [0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2), stays available.
+Download **[XP_Optimus_Bypass_v0.9.3.1.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.3.1/XP_Optimus_Bypass_v0.9.3.1.zip)** for the installer. The automatically generated “Source code” archives are for developers. Earlier versions ([0.9.3](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3), [0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2)) stay available.
 
 [繁體中文](README.zh-TW.md) · [Release history](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [Installer changelog](installer/CHANGELOG.md) · [Quick guide / 英中操作說明](installer/README.txt) · [0.9.3 plan](docs/PLAN-0.9.3.md)
+
+## What's new in 0.9.3.1
+
+- The Intel output waits for a free back buffer for at most 2 s (then switches to native), so DXGI Present does not
+  block; NVIDIA waits are reported in the log after 3 s and return on device loss.
 
 ## What's new in 0.9.3
 
@@ -63,7 +68,7 @@ The original investigation used an Intel 10th-generation laptop. Benefits on oth
 
 ## Installation
 
-1. Fully extract `XP_Optimus_Bypass_v0.9.3.zip`. Keep the BAT file and the `app`, `docs` and `fallback` folders together.
+1. Fully extract `XP_Optimus_Bypass_v0.9.3.1.zip`. Keep the BAT file and the `app`, `docs` and `fallback` folders together.
 2. Close X-Plane and run **`XP_Optimus_Bypass.bat`**.
 3. Confirm the **X-Plane installation path**. Select the intended installation from the list, use **Browse**, or enter the path to `X-Plane.exe` or its containing folder.
 4. Choose a separate folder in which to install **XP Optimus Bypass**. The default is `%LOCALAPPDATA%\Programs\XP Optimus Bypass`. Choose a location your Windows account can write to.
@@ -204,7 +209,7 @@ certutil -hashfile app\xp_optimus_bypass.dll SHA256
 Compare the result with the `app/xp_optimus_bypass.dll` entry in the packaged `SHA256SUMS.txt` (the entry may start with `./`). Official GitHub Actions release builds also provide build-provenance attestations:
 
 ```sh
-gh attestation verify XP_Optimus_Bypass_v0.9.3.zip -R jjjay0826/xp-optimus-bypass
+gh attestation verify XP_Optimus_Bypass_v0.9.3.1.zip -R jjjay0826/xp-optimus-bypass
 ```
 
 Attestation applies to the exact archive built by the workflow; it does not carry over to a modified or repackaged ZIP.
@@ -215,10 +220,10 @@ From a source checkout, using the MinGW-w64 toolchain described in `build.sh`:
 
 ```sh
 sh build.sh
-sh package.sh 0.9.3
+sh package.sh 0.9.3.1
 ```
 
-The output is `XP_Optimus_Bypass_v0.9.3.zip`.
+The output is `XP_Optimus_Bypass_v0.9.3.1.zip`.
 
 - Vulkan layer source: [`src/xp_optimus_bypass.cpp`](src/xp_optimus_bypass.cpp)
 - Installer sources and documentation: [`installer/`](installer/)

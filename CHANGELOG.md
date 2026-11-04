@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.3.1 (testing) — 2026-11-05
+## 0.9.3.1 — 2026-11-04
 
 - **DXGI Present no longer has to block:** the Intel swapchain uses a frame latency waitable object; the worker waits
   for a free back buffer for at most 2 s, then treats the Intel side as failed and switches to native.

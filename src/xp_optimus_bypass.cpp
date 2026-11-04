@@ -1187,6 +1187,7 @@ struct Session {
     double lastProbe = -1e18, baseP95 = 0;
     int bad = 0;
     double lastLongGap = 0;   // end of the last frame gap > 2 s (a loading screen); probes start only after one
+    double lastPresentT = 0;
     double probeStart = 0;
     int rounds = 0;           // probe rounds discarded because the two runs of a path disagreed
     double firstFrame = 0;
@@ -2964,6 +2965,10 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
     g_xpThread = GetCurrentThreadId();
     g_xStage = XS_PRESENT;
     uint32_t i = pi->pImageIndices[0];
+    // A gap of over 2 s between any two presents is a loading screen (measured even right after a path switch,
+    // when frame intervals are not counted: X-Plane's start-up loading screen shows only a few frames).
+    if (g_sess.lastPresentT > 0 && t0 - g_sess.lastPresentT > 2000.0) g_sess.lastLongGap = t0;
+    g_sess.lastPresentT = t0;
     // frame interval (counted unless just after a switch)
     {
         std::lock_guard<std::mutex> lk(s->perf.m);
@@ -2973,7 +2978,6 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
                 double iv = t0 - s->perf.lastT0;
                 s->perf.frame.add(iv);
                 if (iv > 50.0) s->perf.over50++;
-                if (iv > 2000.0) g_sess.lastLongGap = t0;  // a loading screen just ended
             }
             if (g_sess.firstFrame == 0) g_sess.firstFrame = t0;
             s->perf.lastT0 = t0;

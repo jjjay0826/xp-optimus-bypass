@@ -52,9 +52,11 @@ function Get-XPReport([string]$Root, [string]$InstallMode = '', [string]$Install
         elseif ($line -match '^render GPU: (.+?), driver (\S+) \|') { $r.render_gpu = Get-CleanText $Matches[1] 80; $r.render_driver = Get-CleanText $Matches[2] 20 }
         elseif ($line -match '^Intel: using (.+?), driver (\S+?),') { $r.intel_gpu = Get-CleanText $Matches[1] 80; $r.intel_driver = Get-CleanText $Matches[2] 20 }
         elseif ($line -match '^\[diag\] screen .*driven by Intel \(EnumDisplayDevices\): (yes|no)(.*)$') {
+            $isIntel = $Matches[1] -eq 'yes'
+            $rest = $Matches[2]
             $r.screens++
-            if ($Matches[1] -eq 'yes') { $r.intel_screens++ }
-            if ($Matches[2] -match 'X-Plane window is here') { $r.window_on_intel = ($Matches[1] -eq 'yes') }
+            if ($isIntel) { $r.intel_screens++ }
+            if ($rest -like '*X-Plane window is here*') { $r.window_on_intel = $isIntel }
         }
         elseif ($line -match '^\[diag\] TEST SWITCHES') { $r.test_switches = $true }
         elseif ($line -match '^\[diag\] bypass ready: memory (.+?) \| GeForce conversion (.+?) \|') {

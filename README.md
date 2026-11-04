@@ -8,7 +8,7 @@ A Vulkan layer for X-Plane 12 on Windows Optimus laptops where an NVIDIA GeForce
 
 Download **[XP_Optimus_Bypass_v0.9.2.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.2/XP_Optimus_Bypass_v0.9.2.zip)** for the installer. The automatically generated “Source code” archives are for developers.
 
-**Pre-release for testing: [0.9.3-beta](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3-beta)** — compatibility rework (see below). Not yet tested on Windows; use 0.9.2 if you want the tested version.
+**Latest release: [0.9.3-beta](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3-beta)** — compatibility rework (see below), tested on an ASUS TUF F15 (GTX 1650 + UHD Graphics).
 
 [Release history](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [Installer changelog](installer/CHANGELOG.md) · [Quick guide / 英中操作說明](installer/README.txt) · [0.9.3 plan](docs/PLAN-0.9.3.md)
 

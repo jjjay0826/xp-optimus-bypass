@@ -43,9 +43,11 @@ function Get-XPReport([string]$Root, [string]$InstallMode = '', [string]$Install
     $fps = @{}
     $lastPath = ''
     foreach ($line in $lines) {
-        if ($line -match '^XP Optimus Bypass (\S+) loaded in X-Plane\.exe \| mode=(\S+)(?: path=(\S+))?') {
-            $r.layer = Get-CleanText $Matches[1] 20; $r.mode = Get-CleanText $Matches[2] 10
-            if ($Matches[3]) { $r.path_pref = Get-CleanText $Matches[3] 10 }
+        if ($line -match '^XP Optimus Bypass (?<ver>\S+)(?: \(build (?<build>[0-9a-z]+)\))? loaded in X-Plane\.exe \| mode=(?<mode>\S+)(?: path=(?<path>\S+))?') {
+            $ver = $Matches['ver']
+            if ($Matches['build']) { $ver = $ver + '+' + $Matches['build'] }
+            $r.layer = Get-CleanText $ver 20; $r.mode = Get-CleanText $Matches['mode'] 10
+            if ($Matches['path']) { $r.path_pref = Get-CleanText $Matches['path'] 10 }
         }
         elseif ($line -match '^Windows (\d+\.\d+) build (\d+)') { $r.windows = $Matches[1] + '.' + $Matches[2] }
         elseif ($line -match '^X-Plane\.exe file version ([\d.]+)') { $r.xplane = $Matches[1] }

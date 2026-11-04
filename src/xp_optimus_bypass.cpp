@@ -44,6 +44,9 @@
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
 #define XPOB_VERSION "0.9.3-beta"
+#ifndef XPOB_BUILD
+#define XPOB_BUILD "dev"
+#endif
 
 // ================================================================ config & log
 
@@ -266,7 +269,8 @@ static void initOnce() {
     FILE* lf = _wfsopen(g_logPath.c_str(), L"w", _SH_DENYNO);  // fresh log every run
     if (lf) fclose(lf);
     static const char* prefNames[] = {"auto", "bypass", "native", "cpu-copy"};
-    logf("XP Optimus Bypass %s loaded in X-Plane.exe | mode=%s path=%s probe=%d vsync=%d stats=%d", XPOB_VERSION,
+    logf("XP Optimus Bypass %s (build %s) loaded in X-Plane.exe | mode=%s path=%s probe=%d vsync=%d stats=%d",
+         XPOB_VERSION, XPOB_BUILD,
          g_cfg.mode == MODE_OFF ? "off" : g_cfg.mode == MODE_ON ? "on" : "auto", prefNames[g_cfg.path],
          g_cfg.probe ? 1 : 0, g_cfg.vsync ? 1 : 0, g_cfg.stats ? 1 : 0);
     if (g_cfg.forceBlit || g_cfg.forceCpuCopy || g_cfg.noExtraQueue || g_cfg.failIntelAfter || g_cfg.bypassAfterNative)

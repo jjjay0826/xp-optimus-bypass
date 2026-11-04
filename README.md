@@ -14,6 +14,13 @@ Download **[XP_Optimus_Bypass_v0.9.2.zip](https://github.com/jjjay0826/xp-optimu
 
 ## What's new in 0.9.3-beta
 
+- **Intel output through DXGI flip mode (D3D12).** The Intel GPU shows the frame through a flip-model swapchain and
+  reads the transfer block in place, so switching to the native NVIDIA output and back no longer leaves a frozen
+  picture (it did with older Intel Vulkan drivers). `intel_output=vulkan` keeps the 0.9.2-style output.
+- **No freezes from a stuck Intel driver:** Intel waits are time-limited and fall back to the native path; a
+  watchdog writes `[hang]` lines if no frame is shown.
+- **Steam copies start directly** (a `steam_appid.txt` is added next to `X-Plane.exe`), so Steam no longer restarts
+  X-Plane without the layer.
 - **Path switching inside the layer.** X-Plane always renders into the layer's images. Each frame goes either
   through the Intel GPU (*bypass*) or into a real NVIDIA swapchain owned by the layer (*native*). Moving the window
   to a screen driven by the NVIDIA GPU, an Intel-side failure or the measurement below switch the path without
@@ -21,7 +28,8 @@ Download **[XP_Optimus_Bypass_v0.9.2.zip](https://github.com/jjjay0826/xp-optimu
 - **Measured path choice.** With `path=auto`, the first time on a setup the layer compares native and bypass
   (native / bypass / native / bypass, 300 frames each, once the frame rate is stable) and keeps the bypass only
   if its median frame time is at least 5% lower and its 95th percentile is not more than 10% worse. The result is
-  cached per GPU, driver and screen in `xpob_path_cache.txt`.
+  cached per GPU, driver and screen in `xpob_path_cache.txt`. During this one-time measurement (about a minute) the
+  frame rate drops to about half twice and the picture stutters briefly at each switch; the installer says so.
 - **Compatibility:** the Intel GPU driving X-Plane's screen is chosen by LUID; when a GPU cannot import host
   memory, a CPU copy is used instead; when there is no spare graphics queue, a transfer queue is used; formats
   other than BGRA8 are converted and different sizes are scaled with blits; X-Plane is offered only SDR formats

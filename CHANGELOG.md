@@ -2,7 +2,12 @@
 
 ## 0.9.3-beta — 2026-11-04
 
-Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3.md)). Not yet tested on Windows.
+Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3.md)). Tested on an ASUS TUF F15
+(GTX 1650 + UHD Graphics, Intel driver 101.1999, X-Plane 12.4.3): bypass ~44 FPS vs native ~23 FPS at KSEA, switching
+both ways without a frozen picture.
+
+- **Notice before installing:** the installer says that anonymous reports are on by default (and how to opt out),
+  and that the one-time native/bypass measurement briefly halves the frame rate and stutters at each switch.
 
 - **Always a virtual swapchain** when the layer is active; the output path (bypass through the Intel GPU, or native
   through a layer-owned NVIDIA swapchain) is switched inside the layer. No reliance on X-Plane recreating its

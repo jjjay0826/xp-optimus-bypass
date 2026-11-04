@@ -6,6 +6,10 @@ Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3
 (GTX 1650 + UHD Graphics, Intel driver 101.1999, X-Plane 12.4.3): bypass ~44 FPS vs native ~23 FPS at KSEA, switching
 both ways without a frozen picture.
 
+- **Probe only in flight:** it waits for a loading screen (a frame gap over 2 s) plus 30 s and ignores menu frame
+  rates (under 6 ms per frame); a loading pause during the measurement restarts it, and if the two runs of a path
+  differ by more than 30% it measures again (twice), then keeps the bypass without saving a result. Found in testing:
+  starting in X-Plane's main menu made it pick native.
 - **No leftover console windows:** Windows Terminal (default on Windows 11) ignores PowerShell's hidden window style,
   so an empty PowerShell window stayed open while the launcher waited for X-Plane. The launcher, the shortcuts and
   the installer now run through a headless console host (Windows 10 1903+); the BAT window closes right away.

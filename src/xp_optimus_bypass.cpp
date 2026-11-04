@@ -1186,6 +1186,10 @@ struct Session {
     int stableTries = 0, retries = 0;
     double lastProbe = -1e18, baseP95 = 0;
     int bad = 0;
+    double lastLongGap = 0;   // end of the last frame gap > 2 s (a loading screen); probes start only after one
+    double probeStart = 0;
+    int rounds = 0;           // probe rounds discarded because the two runs of a path disagreed
+    double firstFrame = 0;
     std::string cacheKey;
 };
 static Session g_sess;
@@ -2729,6 +2733,11 @@ static void probeWindow(VSwap* s, double p50, double p95, double maxv) {
         return;
     }
     if (g_sess.probe == PROBE_WAIT_STABLE) {
+        // Only in flight: after a loading screen (a > 2 s gap) plus 30 s, and not at menu frame rates (< 6 ms).
+        // Without any loading gap (e.g. a flight resumed directly), wait 3 minutes.
+        bool afterLoad = g_sess.lastLongGap > 0 ? now - g_sess.lastLongGap > 30000.0
+                                                : g_sess.firstFrame > 0 && now - g_sess.firstFrame > 180000.0;
+        if (!afterLoad || p50 < 6.0) { g_sess.prevP50 = 0; return; }
         bool stable = g_sess.prevP50 > 0 && std::fabs(p50 - g_sess.prevP50) < 0.10 * g_sess.prevP50 && maxv < 200.0;
         g_sess.prevP50 = p50;
         if (!stable) {
@@ -2742,17 +2751,43 @@ static void probeWindow(VSwap* s, double p50, double p95, double maxv) {
         g_sess.probe = PROBE_RUN;
         g_sess.step = 0;
         g_sess.retries = 0;
+        g_sess.probeStart = now;
         logf("probe: stable at %.1f ms per frame, measuring native / bypass / native / bypass (300 frames each)", p50);
         g_sess.want = kProbeOrder[0];
         return;
     }
     if (g_sess.probe == PROBE_RUN) {
+        if (g_sess.lastLongGap > g_sess.probeStart) {  // the scene changed (loading screen): measure again later
+            logf("probe: a loading pause happened during the measurement -> measuring again later");
+            g_sess.probe = PROBE_WAIT_STABLE;
+            g_sess.prevP50 = 0;
+            g_sess.stableTries = 0;
+            g_sess.want = PATH_BYPASS;
+            return;
+        }
         if (s->path != kProbeOrder[g_sess.step]) { g_sess.want = kProbeOrder[g_sess.step]; return; }
         if (maxv > 200.0 && g_sess.retries < 3) { ++g_sess.retries; return; }  // loading hitch: measure again
         g_sess.p50[g_sess.step] = p50;
         g_sess.p95[g_sess.step] = p95;
         logf("probe %d/4: %s p50 %.2f ms p95 %.2f ms", g_sess.step + 1, pathName(s->path), p50, p95);
         if (++g_sess.step < 4) { g_sess.want = kProbeOrder[g_sess.step]; return; }
+        auto differ = [](double a, double b) { return std::fabs(a - b) > 0.30 * std::min(a, b); };
+        if (differ(g_sess.p50[0], g_sess.p50[2]) || differ(g_sess.p50[1], g_sess.p50[3])) {
+            if (++g_sess.rounds <= 2) {
+                logf("probe: the two runs of a path differ by more than 30%% (scene changing?) -> measuring again");
+                g_sess.probe = PROBE_WAIT_STABLE;
+                g_sess.prevP50 = 0;
+                g_sess.stableTries = 0;
+                g_sess.want = PATH_BYPASS;
+                return;
+            }
+            logf("probe: results stayed inconsistent -> keeping the bypass, not saving a result");
+            g_sess.want = PATH_BYPASS;
+            g_sess.probe = PROBE_DONE;
+            g_sess.lastProbe = now;
+            g_sess.baseP95 = 0;
+            return;
+        }
         double n50 = (g_sess.p50[0] + g_sess.p50[2]) / 2, b50 = (g_sess.p50[1] + g_sess.p50[3]) / 2;
         double n95 = (g_sess.p95[0] + g_sess.p95[2]) / 2, b95 = (g_sess.p95[1] + g_sess.p95[3]) / 2;
         int pick = (b50 <= 0.95 * n50 && b95 <= 1.10 * n95) ? PATH_BYPASS : PATH_NATIVE;
@@ -2938,7 +2973,9 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
                 double iv = t0 - s->perf.lastT0;
                 s->perf.frame.add(iv);
                 if (iv > 50.0) s->perf.over50++;
+                if (iv > 2000.0) g_sess.lastLongGap = t0;  // a loading screen just ended
             }
+            if (g_sess.firstFrame == 0) g_sess.firstFrame = t0;
             s->perf.lastT0 = t0;
         }
     }

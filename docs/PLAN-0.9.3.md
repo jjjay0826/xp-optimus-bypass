@@ -26,6 +26,22 @@
 
 路徑中的使用者名稱一律換成 `%USERPROFILE%`，讓 log 可以直接公開貼上。
 
+**效能指標**（每 300 幀記錄一次，每條路徑都記；只看平均 FPS 會漏掉嚴重的卡頓）：
+
+| 指標 | 用途 | 怎麼量 |
+|---|---|---|
+| Frame time **P50 / P95 / P99**、最大值、超過 50 ms 的幀數 | 平均與卡頓情況 | 保存每一幀的間隔（300 個），排序後取百分位數 |
+| GPU copy time（GeForce） | 畫面在 GPU 上搬運（含 blit）花多少時間 | copy queue 上的 `vkCmdWriteTimestamp`，先確認 `timestampValidBits` |
+| GPU copy time（Intel） | 從共享記憶體搬到 Intel swapchain 的時間 | Intel queue 上的 timestamp query |
+| CPU copy time | `half-import` / `cpu-copy` 的 `memcpy` 成本 | `QueryPerformanceCounter` 包住 `memcpy` |
+| Fence wait time | 工作執行緒等 GPU 完成的時間（GeForce 和 Intel 分開） | 包住 `vkWaitForFences` |
+| Present duration | `vkQueuePresentKHR` 本身的耗時（Intel 或 NVIDIA） | 包住 present 呼叫 |
+| Acquire time | 取得下一張 swapchain 影像的等待時間 | 包住 `vkAcquireNextImageKHR` |
+| X-Plane wait time | X-Plane 等待空的虛擬影像（> 0 代表 layer 拖慢了 X-Plane） | 已經有 |
+| Layer CPU time on X-Plane's thread | layer 攔截 `vkQueueSubmit` / acquire / present 在主執行緒上多花的時間 | 包住攔截函式 |
+
+除了 P50，每個時間指標也記 P95 和最大值。log 格式固定、一行一組，方便之後自動回報和用程式彙整。
+
 **測試用開關**（寫在 ini 裡，平常不用；讓只有一台筆電也能測每條路徑）：
 ```
 test_force_blit=1        ; 即使格式、大小都相符也走 blit
@@ -69,19 +85,37 @@ test_no_extra_queue=1    ; 假裝沒有多餘的 queue，驗證備用 queue
   4. 共享記憶體大小改成依「實際寫入的格式和大小」計算，不再寫死 `×4`。
   5. 不支援 blit 的格式：退回 NVIDIA 原路徑，並寫 log。
 
-### F. 外接螢幕、MUX 與多螢幕
+### F. 外接螢幕、MUX 與多螢幕：切換路徑不依賴 X-Plane 重建 swapchain
 
 - 現況：只在建立裝置和 swapchain 時判斷一次。如果啟動時沒有 Intel 螢幕，連多的 queue 都不會準備，之後也無法再啟用。
-- 新做法：
-  1. 只要系統裡有 Intel GPU，就準備好多的 queue（成本很低），之後才能隨時切換。
+- 不採用的做法：用 `VK_SUBOPTIMAL_KHR` 要求 X-Plane 重建 swapchain。`SUBOPTIMAL` 的意思是「還能用，只是不是最佳」，應用程式可以繼續使用舊的 swapchain，**不保證會重建**。`OUT_OF_DATE` 雖然強制，但切換是否成功仍然取決於 X-Plane 的處理方式。
+- 新做法：**只要 bypass 有可能用到，X-Plane 一律拿到 layer 的虛擬 swapchain**。路徑切換完全在 layer 內部完成，X-Plane 不需要知道：
+  - `native` 路徑：工作執行緒把虛擬影像複製（或 blit）到 layer 自己建立的**真正 NVIDIA swapchain**，再用 NVIDIA 的 present 送出。0.9.0 調查時的測試第 5 版做過一樣的事，能正常運作，FPS 和原本相同。
+  - `bypass` 路徑：和現在一樣，經過共享記憶體送到 Intel。
+  - 兩個 swapchain（NVIDIA 和 Intel）**同一時間只存在一個**，因為同一個視窗不能同時有兩個 swapchain。切換時：先排空工作佇列 → 銷毀舊的 → 建立新的 → 繼續。中間可能少掉 1–2 幀。
+- 切換觸發：
+  1. 只要系統裡有 Intel GPU，就準備好多的 queue（成本很低）。
   2. 每 30 幀檢查一次 X-Plane 視窗所在螢幕的顯示卡 LUID，並監聽 `WM_DISPLAYCHANGE`。
-  3. 需要切換的時候：
-     - bypass → 原路徑：沿用 0.9.1.1 的機制，回傳 `VK_ERROR_OUT_OF_DATE_KHR`；
-     - 原路徑 → bypass：在原本的 present 回傳 `VK_SUBOPTIMAL_KHR`；
-     - 兩種情況都會讓 X-Plane 重建 swapchain，由 `XP_CreateSwapchainKHR` 重新決定走哪條路徑。
-  4. 視窗跨兩個螢幕時，以視窗面積佔最多的螢幕為準（`MonitorFromWindow` 的預設行為）。
-  5. 切換時加冷卻時間（例如 2 秒），避免拖曳視窗時來回切換。
-  6. Intel 失敗的標記（`g_intelBroken`）維持一次執行中有效，不會再切回去。
+  3. 視窗跨兩個螢幕時，以視窗面積佔最多的螢幕為準（`MonitorFromWindow` 的預設行為）。
+  4. 加 2 秒冷卻時間，避免拖曳視窗時來回切換。
+  5. Intel 失敗（`g_intelBroken`）時改成內部切到 `native`，不再要求 X-Plane 重建。0.9.1.1 的 `OUT_OF_DATE` 機制保留為最後手段：只用在虛擬 swapchain 本身無法繼續的時候。
+- 代價：`native` 路徑多一次 GPU 內部複製（1080p 大約 0.1–0.3 ms），以及在工作執行緒上 present。這要用 A 的指標實際量測；如果在 NVIDIA 直連螢幕上的影響不可忽略，就在「確定用不到 bypass」的情況（沒有 Intel GPU、`mode=off`）直接把真正的 swapchain 交給 X-Plane，跟現在一樣。
+- 好處：0.11 的 X-Plane 外掛開關也只需要切換內部路徑，不必靠 X-Plane 重建 swapchain。
+
+### J. 路徑的自動選擇：依量測結果，而不只是支援狀態
+
+「支援」不代表「比較快」。例如：Intel 11 代以上有 CASO，原本的路徑可能已經夠快；`cpu-copy` 在 CPU 吃緊時可能比原路徑還慢；某些驅動組合的 bypass 可能卡頓更多。
+
+- 第一步：依支援狀態列出**可用的路徑**（`direct-import`、`half-import`、`cpu-copy`、`native`）。
+- 第二步：**實測比較**（F 的內部切換讓這件事不需要 X-Plane 配合）：
+  1. 等畫面穩定：連續 300 幀的 P50 變化小於 10%，而且沒有正在載入場景（沒有超過 200 ms 的幀）。
+  2. 候選路徑輪流跑：`native` 300 幀 → 最佳 bypass 路徑 300 幀 → 再各跑一次（ABAB），抵銷場景變化的影響。
+  3. 比較 **P50 和 P95**：bypass 的 P50 至少快 5%，而且 P95 沒有變差超過 10%，才採用 bypass；否則用 `native`。
+  4. 結果和原因寫進 log，例如 `selected bypass: P50 47.1 -> 28.6 ms, P95 61.0 -> 33.2 ms`。
+- 結果存進快取檔，key 是「GPU + 驅動版本 + 螢幕配置」。下次啟動直接使用，不必重測；驅動或螢幕配置改變就重新量。
+- 執行中持續監看：目前路徑的 P95 比選定時差超過 30%，而且持續 3 個視窗（約 30 秒），就重新比較一次。
+- 使用者可以在 ini 強制指定：`path=auto|bypass|native|cpu-copy`（預設 `auto`）。
+- 量測期間多出來的幾次切換，大約只佔每次啟動的前 1 分鐘，log 和回報都會註明。
 
 ### G. Overlay / 擷取工具
 
@@ -131,10 +165,10 @@ test_no_extra_queue=1    ; 假裝沒有多餘的 queue，驗證備用 queue
 
 | 里程碑 | 內容 | 你要測的東西 |
 |---|---|---|
-| **M1** | A 診斷 log + 測試用開關 | log 的 `[diag]` 內容是否正確（GPU、LUID、螢幕、格式） |
-| **M2** | B LUID 選卡 + F 螢幕切換 | 拖視窗、插拔外接螢幕（如果有）、最小化再還原；FPS 不變 |
+| **M1** | A 診斷 log + 效能指標（P50/P95/P99、各段時間）+ 測試用開關 | `[diag]` 內容是否正確（GPU、LUID、螢幕、格式）；指標數字合理（跟 0.9.2 的 FPS 對得上） |
+| **M2** | B LUID 選卡 + F 永遠使用虛擬 swapchain、內部切換 `native` / `bypass` | `path=native` 時 FPS 跟沒裝 layer 一樣；拖視窗、插拔外接螢幕（如果有）、最小化再還原；`test_fail_intel_after` 內部切回 native 不當機 |
 | **M3** | E 格式與大小（blit） | `test_force_blit=1` 畫面正常、顏色正確，FPS 只掉一點；改視窗大小 |
-| **M4** | C 備用記憶體路徑 + D 備用 queue | `test_force_cpu_copy=1`、`test_no_extra_queue=1` 都能運作；記錄 FPS 差異 |
+| **M4** | C 備用記憶體路徑 + D 備用 queue + J 依量測自動選路徑 | `test_force_cpu_copy=1`、`test_no_extra_queue=1` 都能運作；`path=auto` 選對路徑，log 有比較結果 |
 | **M5** | H 安裝程式 + G overlay 偵測 | 安裝、重裝、移除、備用安裝；Steam overlay / RTSS / OBS 實測 |
 | **M6** | I 自動回報（啟動器 + Cloudflare Worker） | 關掉 X-Plane 後回報有送出、內容正確；關閉選項後完全不送 |
 | **發布** | 整合測試 + 更新 README / CHANGELOG | 固定測試（KSEA）off / on，FPS 不能比 0.9.2 差 |

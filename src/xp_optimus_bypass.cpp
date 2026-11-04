@@ -21,6 +21,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dxgi.h>
+#include <dxgi1_5.h>
+#include <d3d12.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
 
@@ -59,13 +61,14 @@ struct Config {
     bool vsync = false;
     bool stats = true;
     int path = PREF_AUTO;
-    bool probe = false;           // measure native vs bypass before settling (path=auto only; needs
-                                  // test_bypass_after_native, see g_nativeShown)
+    bool probe = true;            // measure native vs bypass before settling (path=auto; only with the DXGI
+                                  // Intel output or test_bypass_after_native, see g_nativeShown)
     // test switches: let one laptop exercise every code path
     bool forceBlit = false;       // convert/scale through blits even when formats and sizes match
     bool forceCpuCopy = false;    // do not use VK_EXT_external_memory_host
     bool noExtraQueue = false;    // pretend the graphics family has no spare queue
     int failIntelAfter = 0;       // simulate an Intel failure after this many bypass frames
+    int intelOut = 0;             // Intel output: 0 auto (DXGI flip, else Vulkan), 1 DXGI only, 2 Vulkan only
     int bypassAfterNative = 0;    // 0: never return to the bypass once native output was shown on the window,
                                   // 1: return anyway (same Intel surface), 2: return with a fresh Intel surface
 };
@@ -219,6 +222,8 @@ static void readIni() {
         else if (!_stricmp(k, "test_force_cpu_copy")) g_cfg.forceCpuCopy = iv != 0;
         else if (!_stricmp(k, "test_no_extra_queue")) g_cfg.noExtraQueue = iv != 0;
         else if (!_stricmp(k, "test_fail_intel_after")) g_cfg.failIntelAfter = iv > 0 ? iv : 0;
+        else if (!_stricmp(k, "intel_output"))
+            g_cfg.intelOut = !_stricmp(v, "dxgi") ? 1 : !_stricmp(v, "vulkan") ? 2 : 0;
         else if (!_stricmp(k, "test_bypass_after_native")) g_cfg.bypassAfterNative = iv < 0 ? 0 : iv > 2 ? 2 : iv;
     }
     fclose(f);
@@ -660,6 +665,8 @@ struct IntelCtx {
     uint32_t tsBits = 0;
     float tsPeriod = 1.0f;
     bool famGraphics = false;  // blits need a graphics queue
+    uint8_t luid[8]{};
+    bool luidValid = false;
 #define IFN(n) PFN_##n n = nullptr
     IFN(vkGetInstanceProcAddr); IFN(vkGetDeviceProcAddr); IFN(vkDestroyInstance);
     IFN(vkEnumeratePhysicalDevices); IFN(vkGetPhysicalDeviceProperties); IFN(vkGetPhysicalDeviceProperties2);
@@ -685,6 +692,90 @@ struct IntelCtx {
 
 static IntelCtx* g_intel = nullptr;  // X-Plane has a single window
 static std::string g_intelWhyNot;
+
+// ---------------------------------------------------------------- Intel output through DXGI (flip model)
+// NVIDIA's native output uses DXGI flip mode, and Windows then no longer shows a window's old-style (blt) presents,
+// which older Intel Vulkan drivers use. Presenting the Intel side through a D3D12 flip-model swapchain keeps the
+// window in flip mode for both paths, so the layer can switch either way. D3D12 reads the transfer block in place
+// (OpenExistingHeapFromAddress) when the driver supports it; otherwise through an upload buffer + CPU copy.
+// MinGW's d3d12.h stops at ID3D12Device1; these two declarations add what we need (vtable order as in the SDK).
+struct XD3D12Device2 : public ID3D12Device1 {
+    virtual HRESULT STDMETHODCALLTYPE CreatePipelineState(const void* desc, REFIID riid, void** pp) = 0;
+};
+struct XD3D12Device3 : public XD3D12Device2 {
+    virtual HRESULT STDMETHODCALLTYPE OpenExistingHeapFromAddress(const void* address, REFIID riid, void** heap) = 0;
+    virtual HRESULT STDMETHODCALLTYPE OpenExistingHeapFromFileMapping(HANDLE file, REFIID riid, void** heap) = 0;
+    virtual HRESULT STDMETHODCALLTYPE EnqueueMakeResident(UINT flags, UINT n, ID3D12Pageable* const* objects,
+                                                          ID3D12Fence* fence, UINT64 value) = 0;
+};
+static const GUID kIID_Device3 = {0x81dadc15, 0x2bad, 0x4392, {0x93, 0xc5, 0x10, 0x13, 0x45, 0xc4, 0xaa, 0x98}};
+
+struct DxCtx {
+    IDXGIFactory4* factory = nullptr;
+    ID3D12Device* dev = nullptr;
+    XD3D12Device3* dev3 = nullptr;  // null: no in-place import
+    ID3D12CommandQueue* q = nullptr;
+    bool tearing = false;
+    std::string name;
+};
+static DxCtx* g_dx = nullptr;
+static bool g_dxTried = false;
+static std::string g_dxWhyNot;
+static std::atomic<DWORD> g_xpThread{0};  // X-Plane's render thread (DXGI swapchains are created only there)
+
+template <typename T> static void rel(T*& p) {
+    if (p) { p->Release(); p = nullptr; }
+}
+
+static DxCtx* dxCreate(IntelCtx* c) {
+    g_dxTried = true;
+    auto fail = [&](const char* why, HRESULT hr) -> DxCtx* {
+        char b[160];
+        snprintf(b, sizeof(b), "%s (0x%08lx)", why, (unsigned long)hr);
+        g_dxWhyNot = b;
+        return nullptr;
+    };
+    if (!c->luidValid) return fail("the Intel Vulkan device reports no LUID", 0);
+    HMODULE dxgiLib = LoadLibraryW(L"dxgi.dll");
+    HMODULE d3dLib = LoadLibraryW(L"d3d12.dll");
+    if (!dxgiLib || !d3dLib) return fail("dxgi.dll / d3d12.dll not available", 0);
+    typedef HRESULT(WINAPI * PFN_Factory2)(UINT, REFIID, void**);
+    auto mkFactory = (PFN_Factory2)(void*)GetProcAddress(dxgiLib, "CreateDXGIFactory2");
+    auto mkDevice = (PFN_D3D12_CREATE_DEVICE)(void*)GetProcAddress(d3dLib, "D3D12CreateDevice");
+    if (!mkFactory || !mkDevice) return fail("CreateDXGIFactory2 / D3D12CreateDevice missing", 0);
+    auto* x = new DxCtx();
+    HRESULT hr = mkFactory(0, __uuidof(IDXGIFactory4), (void**)&x->factory);
+    if (FAILED(hr)) { delete x; return fail("CreateDXGIFactory2 failed", hr); }
+    LUID luid;
+    memcpy(&luid, c->luid, sizeof(luid));
+    IDXGIAdapter1* ad = nullptr;
+    hr = x->factory->EnumAdapterByLuid(luid, __uuidof(IDXGIAdapter1), (void**)&ad);
+    if (FAILED(hr)) { rel(x->factory); delete x; return fail("the Intel adapter is not listed by DXGI", hr); }
+    DXGI_ADAPTER_DESC1 ad1{};
+    ad->GetDesc1(&ad1);
+    x->name = utf8(ad1.Description);
+    hr = mkDevice(ad, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), (void**)&x->dev);
+    rel(ad);
+    if (FAILED(hr)) { rel(x->factory); delete x; return fail("D3D12CreateDevice on the Intel GPU failed", hr); }
+    D3D12_FEATURE_DATA_EXISTING_HEAPS eh{};
+    if (SUCCEEDED(x->dev->CheckFeatureSupport(D3D12_FEATURE_EXISTING_HEAPS, &eh, sizeof(eh))) && eh.Supported &&
+        !g_cfg.forceCpuCopy)
+        x->dev->QueryInterface(kIID_Device3, (void**)&x->dev3);
+    D3D12_COMMAND_QUEUE_DESC qd{};
+    qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    hr = x->dev->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), (void**)&x->q);
+    if (FAILED(hr)) { rel(x->dev3); rel(x->dev); rel(x->factory); delete x; return fail("D3D12 queue", hr); }
+    IDXGIFactory5* f5 = nullptr;
+    if (SUCCEEDED(x->factory->QueryInterface(__uuidof(IDXGIFactory5), (void**)&f5))) {
+        BOOL t = FALSE;
+        if (SUCCEEDED(f5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &t, sizeof(t)))) x->tearing = t;
+        rel(f5);
+    }
+    logf("[diag] Intel output: DXGI flip model through D3D12 on %s | in-place import of the transfer block: %s | "
+         "tearing (no vsync): %s", x->name.c_str(), x->dev3 ? "yes" : "no (upload buffer + CPU copy)",
+         x->tearing ? "yes" : "no");
+    return x;
+}
 
 static IntelCtx* intelCreate(HWND hwnd) {
     HMODULE lib = GetModuleHandleW(L"vulkan-1.dll");
@@ -782,6 +873,13 @@ static IntelCtx* intelCreate(HWND hwnd) {
         if (!firstOk) firstOk = p;
     }
     c->pd = byLuid ? byLuid : firstOk;
+    if (c->pd && c->vkGetPhysicalDeviceProperties2) {
+        VkPhysicalDeviceIDProperties idp{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+        VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        p2.pNext = &idp;
+        c->vkGetPhysicalDeviceProperties2(c->pd, &p2);
+        if (idp.deviceLUIDValid) { memcpy(c->luid, idp.deviceLUID, 8); c->luidValid = true; }
+    }
     if (!c->pd) return fail("no Intel Vulkan device can present to X-Plane's window");
     if (!byLuid) logf("[diag] Intel device chosen without a LUID match (first Intel device that can present)");
 
@@ -984,6 +1082,19 @@ struct VSwap {
     VkDeviceMemory iStageMem[R]{};
     uint64_t bypassFrames = 0;
     int failRun = 0;
+    uint32_t pitch = 0;                 // bytes per row in the transfer block (256-aligned for D3D12)
+    // DXGI output (useDx): D3D12 copies the transfer block into a flip-model swapchain
+    bool useDx = false;
+    IDXGISwapChain3* dxSwap = nullptr;
+    ID3D12Resource* dxBack[3]{};
+    ID3D12Heap* dxHeap[R]{};
+    ID3D12Resource* dxBuf[R]{};
+    ID3D12CommandAllocator* dxAlloc[R]{};
+    ID3D12GraphicsCommandList* dxList[R]{};
+    ID3D12Fence* dxFence = nullptr;
+    HANDLE dxEvent = nullptr;
+    uint64_t dxValue = 0, dxSlotValue[R]{};
+    ID3D12Heap* trialDxHeap = nullptr;
 
     // ---- native (X-Plane's thread)
     bool nativeTried = false, nativeOk = false;
@@ -1138,6 +1249,205 @@ static bool mappedBuffer(VkDevice dev, VkDeviceSize size, VkBufferUsageFlags usa
     return map(dev, *mem, 0, VK_WHOLE_SIZE, 0, ptr) == VK_SUCCESS && *ptr;
 }
 
+static void intelFailure(VSwap* s, const char* what, VkResult r);
+
+// ---- DXGI output, per virtual swapchain
+// Wait until D3D12 no longer reads slot k (before the GeForce overwrites it). Never forever: 5 s, then the Intel
+// side counts as hung.
+static bool dxWaitValue(VSwap* s, uint64_t v) {
+    if (!v || s->dxFence->GetCompletedValue() >= v) return true;
+    if (g_intelHung) return false;
+    s->dxFence->SetEventOnCompletion(v, s->dxEvent);
+    if (WaitForSingleObject(s->dxEvent, 5000) == WAIT_OBJECT_0) return true;
+    if (!g_intelHung.exchange(true)) logf("[hang] Intel D3D12 copy did not finish within 5 s -> not waiting on Intel any more");
+    return false;
+}
+static bool dxWaitSlot(VSwap* s, uint32_t k) {
+    bool ok = dxWaitValue(s, s->dxSlotValue[k]);
+    s->dxSlotValue[k] = 0;
+    return ok;
+}
+static void dxIdle(VSwap* s) {
+    if (!s->dxFence || !g_dx || g_intelHung) return;
+    g_dx->q->Signal(s->dxFence, ++s->dxValue);
+    dxWaitValue(s, s->dxValue);
+}
+static void dxDropSwapchain(VSwap* s) {
+    if (!s->dxSwap) return;
+    dxIdle(s);
+    for (auto& b : s->dxBack) rel(b);
+    rel(s->dxSwap);
+    for (auto& v : s->dxSlotValue) v = 0;
+}
+// Flip-model swapchain with the frame's size; DXGI stretches it to the window. X-Plane's thread only (creating
+// a swapchain can send messages to the window, and the worker must never wait for X-Plane's message loop).
+static bool dxEnsureSwapchain(VSwap* s) {
+    if (s->dxSwap) return true;
+    if (g_intelHung || GetCurrentThreadId() != g_xpThread.load()) return false;
+    DXGI_SWAP_CHAIN_DESC1 sd{};
+    sd.Width = s->ext.width;
+    sd.Height = s->ext.height;
+    sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;  // bytes stay sRGB-encoded, like X-Plane's own image
+    sd.SampleDesc.Count = 1;
+    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd.BufferCount = 3;
+    sd.Scaling = DXGI_SCALING_STRETCH;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    sd.Flags = g_dx->tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    IDXGISwapChain1* sc1 = nullptr;
+    HRESULT hr = E_FAIL;
+    for (int tryN = 0; tryN < 10; ++tryN) {  // the previous swapchain on the window may take a moment to go away
+        hr = g_dx->factory->CreateSwapChainForHwnd(g_dx->q, s->hwnd, &sd, nullptr, nullptr, &sc1);
+        if (hr != E_ACCESSDENIED) break;
+        Sleep(30);
+    }
+    if (FAILED(hr)) {
+        static int n = 0;
+        if (++n <= 5) logf("Intel: DXGI swapchain creation failed (0x%08lx)", (unsigned long)hr);
+        return false;
+    }
+    g_dx->factory->MakeWindowAssociation(s->hwnd, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
+    hr = sc1->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&s->dxSwap);
+    rel(sc1);
+    if (FAILED(hr)) { logf("Intel: IDXGISwapChain3 missing (0x%08lx)", (unsigned long)hr); return false; }
+    for (UINT i = 0; i < 3; ++i)
+        if (FAILED(s->dxSwap->GetBuffer(i, __uuidof(ID3D12Resource), (void**)&s->dxBack[i]))) {
+            logf("Intel: DXGI back buffer %u unavailable", i);
+            dxDropSwapchain(s);
+            return false;
+        }
+    s->iext = s->ext;
+    logf("Intel: DXGI flip swapchain %ux%u, 3 buffers, %s", s->ext.width, s->ext.height,
+         g_cfg.vsync ? "vsync" : g_dx->tearing ? "no vsync (tearing allowed)" : "no vsync");
+    return true;
+}
+// Worker thread: copy slot k into the next back buffer and present.
+static void dxFrame(VSwap* s, uint32_t k) {
+    if (!s->dxSwap) return;  // being (re)created on X-Plane's thread: drop this frame
+    setWStage(WS_I_SUBMIT);
+    UINT idx = s->dxSwap->GetCurrentBackBufferIndex();
+    ID3D12Resource* back = s->dxBack[idx % 3];
+    s->dxAlloc[k]->Reset();
+    ID3D12GraphicsCommandList* l = s->dxList[k];
+    l->Reset(s->dxAlloc[k], nullptr);
+    D3D12_RESOURCE_BARRIER b{};
+    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b.Transition.pResource = back;
+    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+    b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+    l->ResourceBarrier(1, &b);
+    D3D12_TEXTURE_COPY_LOCATION dst{}, src{};
+    dst.pResource = back;
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.SubresourceIndex = 0;
+    src.pResource = s->dxBuf[k];
+    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src.PlacedFootprint.Offset = 0;
+    src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    src.PlacedFootprint.Footprint.Width = s->ext.width;
+    src.PlacedFootprint.Footprint.Height = s->ext.height;
+    src.PlacedFootprint.Footprint.Depth = 1;
+    src.PlacedFootprint.Footprint.RowPitch = s->pitch;
+    l->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    b.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+    l->ResourceBarrier(1, &b);
+    if (FAILED(l->Close())) { intelFailure(s, "D3D12 command list", VK_ERROR_DEVICE_LOST); return; }
+    ID3D12CommandList* lists[] = {l};
+    g_dx->q->ExecuteCommandLists(1, lists);
+    setWStage(WS_I_PRESENT);
+    double a = nowMs();
+    UINT flags = (!g_cfg.vsync && g_dx->tearing) ? DXGI_PRESENT_ALLOW_TEARING : 0;
+    HRESULT hr = s->dxSwap->Present(g_cfg.vsync ? 1 : 0, flags);
+    double tPres = nowMs() - a;
+    g_dx->q->Signal(s->dxFence, ++s->dxValue);
+    s->dxSlotValue[k] = s->dxValue;
+    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+        logf("Intel: DXGI present: device removed (0x%08lx, reason 0x%08lx)", (unsigned long)hr,
+             (unsigned long)g_dx->dev->GetDeviceRemovedReason());
+        intelFailure(s, "present", VK_ERROR_DEVICE_LOST);
+        return;
+    }
+    if (FAILED(hr)) { intelFailure(s, "DXGI present", VK_ERROR_SURFACE_LOST_KHR); return; }
+    s->failRun = 0;
+    std::lock_guard<std::mutex> lk(s->perf.m);
+    s->perf.iPres.add(tPres);
+}
+// Per-slot D3D12 objects; the transfer block is imported in place when possible.
+static bool dxBuildSlots(VSwap* s, bool import, std::string* why) {
+    ID3D12Device* dev = g_dx->dev;
+    if (FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)&s->dxFence))) {
+        *why = "D3D12 fence";
+        return false;
+    }
+    s->dxEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    for (int k = 0; k < VSwap::R; ++k) {
+        D3D12_RESOURCE_DESC rd{};
+        rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        rd.Width = s->bytes;
+        rd.Height = 1;
+        rd.DepthOrArraySize = 1;
+        rd.MipLevels = 1;
+        rd.SampleDesc.Count = 1;
+        rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        HRESULT hr;
+        if (import) {
+            hr = g_dx->dev3->OpenExistingHeapFromAddress(s->host[k], __uuidof(ID3D12Heap), (void**)&s->dxHeap[k]);
+            if (FAILED(hr)) { *why = "D3D12 in-place import failed"; return false; }
+            rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER;
+            hr = dev->CreatePlacedResource(s->dxHeap[k], 0, &rd, D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                           __uuidof(ID3D12Resource), (void**)&s->dxBuf[k]);
+            if (FAILED(hr)) {
+                rd.Flags = D3D12_RESOURCE_FLAG_NONE;
+                hr = dev->CreatePlacedResource(s->dxHeap[k], 0, &rd, D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                               __uuidof(ID3D12Resource), (void**)&s->dxBuf[k]);
+            }
+            if (FAILED(hr)) {
+                char b[96];
+                snprintf(b, sizeof(b), "D3D12 buffer on the imported block failed (0x%08lx)", (unsigned long)hr);
+                *why = b;
+                return false;
+            }
+            s->iPtr[k] = s->host[k];
+        } else {
+            D3D12_HEAP_PROPERTIES hp{};
+            hp.Type = D3D12_HEAP_TYPE_UPLOAD;
+            hr = dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                              __uuidof(ID3D12Resource), (void**)&s->dxBuf[k]);
+            if (FAILED(hr)) { *why = "D3D12 upload buffer"; return false; }
+            D3D12_RANGE none{0, 0};
+            if (FAILED(s->dxBuf[k]->Map(0, &none, &s->iPtr[k]))) { *why = "D3D12 map"; return false; }
+            s->iCoherent = true;
+        }
+        if (FAILED(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+                                               (void**)&s->dxAlloc[k])) ||
+            FAILED(dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, s->dxAlloc[k], nullptr,
+                                          __uuidof(ID3D12GraphicsCommandList), (void**)&s->dxList[k]))) {
+            *why = "D3D12 command list";
+            return false;
+        }
+        s->dxList[k]->Close();
+    }
+    return true;
+}
+static void dxDestroy(VSwap* s) {
+    if (!s->useDx) return;
+    if (!g_intelHung) dxIdle(s);
+    for (auto& b : s->dxBack) rel(b);
+    rel(s->dxSwap);
+    for (int k = 0; k < VSwap::R; ++k) {
+        rel(s->dxList[k]);
+        rel(s->dxAlloc[k]);
+        rel(s->dxBuf[k]);
+        rel(s->dxHeap[k]);
+    }
+    rel(s->trialDxHeap);
+    rel(s->dxFence);
+    if (s->dxEvent) { CloseHandle(s->dxEvent); s->dxEvent = nullptr; }
+}
+
 // Wait for an Intel fence, but never forever: an old or broken Intel driver must not freeze X-Plane. After 5 s
 // the Intel device counts as hung; the layer then never waits on it again and uses the native path.
 static bool intelFenceWait(VSwap* s, VkFence f) {
@@ -1171,6 +1481,7 @@ static void waitIntelIdle(VSwap* s) {
 }
 
 static void dropIntelSwapchain(VSwap* s) {
+    if (s->useDx) { dxDropSwapchain(s); return; }
     if (!s->ic || !s->iswap) return;
     waitIntelIdle(s);
     intelIdleDevice(s->ic);
@@ -1222,6 +1533,7 @@ static void intelFailure(VSwap* s, const char* what, VkResult r);
 static bool ensureIntelSwapchain(VSwap* s) {
     IntelCtx* c = s->ic;
     if (g_intelHung) return false;
+    if (s->useDx) return dxEnsureSwapchain(s);
     if (s->iswap && !s->iRecreate) return true;
     VkSurfaceCapabilitiesKHR caps;
     VkResult cr = c->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(c->pd, c->surface, &caps);
@@ -1290,6 +1602,7 @@ static bool ensureIntelSwapchain(VSwap* s) {
 static void destroyBypass(VSwap* s) {
     DevData* d = s->d;
     VkDevice dev = d->device;
+    dxDestroy(s);
     for (int k = 0; k < VSwap::R; ++k)
         if (s->fenceUsed[k]) d->vkWaitForFences(dev, 1, &s->fence[k], VK_TRUE, UINT64_MAX);
     if (s->ic && !g_intelHung) {  // hung Intel device: leak its objects rather than block X-Plane
@@ -1356,6 +1669,15 @@ static bool buildBypass(VSwap* s) {
     if (g_intel->hwnd != s->hwnd) return no("the Intel device belongs to another window");
     s->ic = g_intel;
     IntelCtx* c = s->ic;
+    if (g_cfg.intelOut != 2) {
+        if (!g_dx && !g_dxTried) {
+            g_dx = dxCreate(c);
+            if (!g_dx) logf("[diag] DXGI output unavailable: %s%s", g_dxWhyNot.c_str(),
+                            g_cfg.intelOut == 1 ? "" : " -> Intel Vulkan output");
+        }
+        if (!g_dx && g_cfg.intelOut == 1) return no("intel_output=dxgi, but " + g_dxWhyNot);
+        s->useDx = g_dx != nullptr;
+    }
 
     // conversion on the GeForce: X-Plane's format -> BGRA8 with the same sRGB-ness (bytes stay sRGB-encoded)
     s->convFmt = isSrgb(s->ci.imageFormat) ? VK_FORMAT_B8G8R8A8_SRGB : VK_FORMAT_B8G8R8A8_UNORM;
@@ -1380,7 +1702,7 @@ static bool buildBypass(VSwap* s) {
         if (s->iFmt.format == VK_FORMAT_UNDEFINED || f.format == s->convFmt) s->iFmt = f;
     }
     logf("[diag] Intel surface formats (format/colorspace): %s", list.c_str());
-    if (s->iFmt.format == VK_FORMAT_UNDEFINED) return no("the Intel GPU offers no BGRA8 sRGB surface format");
+    if (s->iFmt.format == VK_FORMAT_UNDEFINED && !s->useDx) return no("the Intel GPU offers no BGRA8 sRGB surface format");
     VkFormatProperties ifp{};
     c->vkGetPhysicalDeviceFormatProperties(c->pd, s->iFmt.format, &ifp);
     s->iBlitOk = c->famGraphics &&
@@ -1388,14 +1710,17 @@ static bool buildBypass(VSwap* s) {
                      (VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT);
 
     // memory path
-    bool nvImp = d->hostImport && !g_cfg.forceCpuCopy, iImp = c->hostImport && !g_cfg.forceCpuCopy;
-    VkDeviceSize align = std::max<VkDeviceSize>(65536, std::max(d->hostAlign, c->hostAlign));
+    bool nvImp = d->hostImport && !g_cfg.forceCpuCopy;
+    bool iImp = s->useDx ? (g_dx->dev3 != nullptr) : (c->hostImport && !g_cfg.forceCpuCopy);
+    VkDeviceSize align = std::max<VkDeviceSize>(65536, std::max(d->hostAlign, s->useDx ? 4096 : c->hostAlign));
     if (align > 65536) {  // VirtualAlloc only guarantees 64 KB
         logf("[diag] host import alignment %llu > 64 KB: not using host import", (unsigned long long)align);
         nvImp = iImp = false;
         align = 65536;
     }
-    VkDeviceSize raw = (VkDeviceSize)s->ext.width * s->ext.height * 4;  // always BGRA8 in the transfer buffer
+    // always BGRA8 in the transfer buffer; D3D12 copies need 256-byte rows
+    s->pitch = s->useDx ? ((s->ext.width * 4 + 255u) & ~255u) : s->ext.width * 4;
+    VkDeviceSize raw = (VkDeviceSize)s->pitch * s->ext.height;
     s->bytes = (raw + align - 1) & ~(align - 1);
     VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     VkSemaphoreCreateInfo semci{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
@@ -1434,7 +1759,14 @@ static bool buildBypass(VSwap* s) {
                 b = VK_NULL_HANDLE;
                 m = VK_NULL_HANDLE;
             }
-            if (iImp) {
+            if (iImp && s->useDx) {
+                HRESULT hr = g_dx->dev3->OpenExistingHeapFromAddress(t, __uuidof(ID3D12Heap), (void**)&s->trialDxHeap);
+                if (FAILED(hr)) {
+                    logf("[diag] D3D12 could not import host memory (0x%08lx) -> upload buffer + CPU copy",
+                         (unsigned long)hr);
+                    iImp = false;
+                }
+            } else if (iImp) {
                 if (!importHost(c->dev, t, align, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, c->mem, c->vkCreateBuffer,
                                 c->vkGetBufferMemoryRequirements, c->vkGetMemoryHostPointerPropertiesEXT,
                                 c->vkAllocateMemory, c->vkBindBufferMemory, &b, &m)) {
@@ -1465,20 +1797,25 @@ static bool buildBypass(VSwap* s) {
                                d->vkGetBufferMemoryRequirements, d->vkAllocateMemory, d->vkBindBufferMemory,
                                d->vkMapMemory, &s->nvBuf[k], &s->nvMem[k], &s->nvPtr[k], &s->nvCoherent))
             return no("GeForce host-visible buffer");
-        if (iImp && !importHost(c->dev, s->host[k], s->bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, c->mem,
+        if (s->useDx) {
+            // D3D12 objects are built after this loop
+        } else if (iImp && !importHost(c->dev, s->host[k], s->bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, c->mem,
                                 c->vkCreateBuffer, c->vkGetBufferMemoryRequirements,
                                 c->vkGetMemoryHostPointerPropertiesEXT, c->vkAllocateMemory, c->vkBindBufferMemory,
                                 &s->iBuf[k], &s->iMem[k]))
             return no("Intel host memory import failed");
-        if (iImp) s->iPtr[k] = s->host[k];
-        else if (!mappedBuffer(c->dev, s->bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, false, c->mem, c->vkCreateBuffer,
-                               c->vkGetBufferMemoryRequirements, c->vkAllocateMemory, c->vkBindBufferMemory,
-                               c->vkMapMemory, &s->iBuf[k], &s->iMem[k], &s->iPtr[k], &s->iCoherent))
-            return no("Intel host-visible buffer");
-        if (c->vkAllocateCommandBuffers(c->dev, &icai, &s->iCb[k]) != VK_SUCCESS) return no("Intel command buffer");
-        if (c->vkCreateFence(c->dev, &fci, nullptr, &s->iFence[k]) != VK_SUCCESS) return no("Intel fence");
-        if (c->vkCreateSemaphore(c->dev, &semci, nullptr, &s->iAcq[k]) != VK_SUCCESS) return no("Intel semaphore");
-        if (c->vkCreateSemaphore(c->dev, &semci, nullptr, &s->iReady[k]) != VK_SUCCESS) return no("Intel semaphore");
+        if (s->useDx) {
+        } else {
+            if (iImp) s->iPtr[k] = s->host[k];
+            else if (!mappedBuffer(c->dev, s->bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, false, c->mem, c->vkCreateBuffer,
+                                   c->vkGetBufferMemoryRequirements, c->vkAllocateMemory, c->vkBindBufferMemory,
+                                   c->vkMapMemory, &s->iBuf[k], &s->iMem[k], &s->iPtr[k], &s->iCoherent))
+                return no("Intel host-visible buffer");
+            if (c->vkAllocateCommandBuffers(c->dev, &icai, &s->iCb[k]) != VK_SUCCESS) return no("Intel command buffer");
+            if (c->vkCreateFence(c->dev, &fci, nullptr, &s->iFence[k]) != VK_SUCCESS) return no("Intel fence");
+            if (c->vkCreateSemaphore(c->dev, &semci, nullptr, &s->iAcq[k]) != VK_SUCCESS) return no("Intel semaphore");
+            if (c->vkCreateSemaphore(c->dev, &semci, nullptr, &s->iReady[k]) != VK_SUCCESS) return no("Intel semaphore");
+        }
         if (s->conv) {
             VkImageCreateInfo ic{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
             ic.imageType = VK_IMAGE_TYPE_2D;
@@ -1502,6 +1839,10 @@ static bool buildBypass(VSwap* s) {
                 return no("conversion image memory");
         }
     }
+    if (s->useDx) {
+        std::string why;
+        if (!dxBuildSlots(s, iImp, &why)) return no(why);
+    }
     s->mem = (nvImp && iImp) ? MEM_SHARED : nvImp ? MEM_NV_IMPORT : iImp ? MEM_INTEL_IMPORT : MEM_CPU;
 
     // GPU timestamps on both sides (if the queue families support them)
@@ -1513,7 +1854,7 @@ static bool buildBypass(VSwap* s) {
         s->nvPeriod = d->props.limits.timestampPeriod;
         s->nvMask = nvBits >= 64 ? ~0ull : ((1ull << nvBits) - 1);
     }
-    if (c->tsBits && c->vkCreateQueryPool(c->dev, &qp, nullptr, &s->iQ) == VK_SUCCESS)
+    if (!s->useDx && c->tsBits && c->vkCreateQueryPool(c->dev, &qp, nullptr, &s->iQ) == VK_SUCCESS)
         s->iMask = c->tsBits >= 64 ? ~0ull : ((1ull << c->tsBits) - 1);
 
     // present mode
@@ -1526,9 +1867,14 @@ static bool buildBypass(VSwap* s) {
         for (auto m : modes) if (m == VK_PRESENT_MODE_MAILBOX_KHR) s->iMode = m;
     }
     s->bypassOk = true;
-    logf("[diag] bypass ready: memory %s | GeForce conversion %s | Intel format %d, scaling blit %s | "
-         "GPU timestamps GeForce %s, Intel %s", memName(s->mem), s->conv ? "blit to BGRA8" : "none (BGRA8)",
-         (int)s->iFmt.format, s->iBlitOk ? "available" : "unavailable", s->nvQ ? "yes" : "no", s->iQ ? "yes" : "no");
+    if (s->useDx)
+        logf("[diag] bypass ready: memory %s | GeForce conversion %s | Intel output DXGI flip (D3D12), row pitch %u | "
+             "GPU timestamps GeForce %s", memName(s->mem), s->conv ? "blit to BGRA8" : "none (BGRA8)", s->pitch,
+             s->nvQ ? "yes" : "no");
+    else
+        logf("[diag] bypass ready: memory %s | GeForce conversion %s | Intel output Vulkan, format %d, scaling blit %s | "
+             "GPU timestamps GeForce %s, Intel %s", memName(s->mem), s->conv ? "blit to BGRA8" : "none (BGRA8)",
+             (int)s->iFmt.format, s->iBlitOk ? "available" : "unavailable", s->nvQ ? "yes" : "no", s->iQ ? "yes" : "no");
     return true;
 }
 
@@ -1741,6 +2087,7 @@ static void recordToHost(DevData* d, VSwap* s, uint32_t k, VkImage src) {
         from = s->convImg[k];
     }
     VkBufferImageCopy c{};
+    c.bufferRowLength = s->pitch / 4;  // texels; equals the width unless rows are padded for D3D12
     c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     c.imageExtent = {s->ext.width, s->ext.height, 1};
     d->vkCmdCopyImageToBuffer(cb, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, s->nvBuf[k], 1, &c);
@@ -1865,6 +2212,10 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
         d->vkResetFences(dev, 1, &s->fence[k]);
         s->fenceUsed[k] = false;
     }
+    if (s->useDx && s->dxSlotValue[k]) {
+        setWStage(WS_OLD_INTEL);
+        if (!dxWaitSlot(s, k)) intelFailure(s, "D3D12 copy (no answer)", VK_ERROR_DEVICE_LOST);
+    }
     if (s->iFenceUsed[k]) {
         setWStage(WS_OLD_INTEL);
         if (intelFenceWait(s, s->iFence[k])) c->vkResetFences(c->dev, 1, &s->iFence[k]);
@@ -1938,7 +2289,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
             mr.size = VK_WHOLE_SIZE;
             d->vkInvalidateMappedMemoryRanges(dev, 1, &mr);
         }
-        memcpy(s->iPtr[k], s->nvPtr[k], (size_t)((VkDeviceSize)s->ext.width * s->ext.height * 4));
+        memcpy(s->iPtr[k], s->nvPtr[k], (size_t)((VkDeviceSize)s->pitch * s->ext.height));
         if (!s->iCoherent) {
             VkMappedMemoryRange mr{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
             mr.memory = s->iMem[k];
@@ -1953,6 +2304,15 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     if (g_cfg.failIntelAfter && s->bypassFrames == (uint64_t)g_cfg.failIntelAfter) {
         logf("[diag] test_fail_intel_after=%d: simulating an Intel device loss", g_cfg.failIntelAfter);
         intelFailure(s, "simulated (test switch)", VK_ERROR_DEVICE_LOST);
+        return;
+    }
+    if (s->useDx) {
+        dxFrame(s, k);
+        setWStage(WS_IDLE);
+        std::lock_guard<std::mutex> lk(s->perf.m);
+        s->perf.gfFence.add(tFence);
+        if (tGpu >= 0) s->perf.gfGpu.add(tGpu);
+        if (tCpu >= 0) s->perf.cpuCopy.add(tCpu);
         return;
     }
     setWStage(WS_I_SWAPCHAIN);
@@ -2196,6 +2556,10 @@ static bool switchPath(VSwap* s, int to, const char* why) {
             return false;
         }
         if (!s->bypassOk) { g_sess.want = PATH_NATIVE; return false; }
+        if (g_nativeShown && !s->useDx && !g_cfg.bypassAfterNative) {  // see g_nativeShown
+            g_sess.want = PATH_NATIVE;
+            return false;
+        }
         destroyNativeSwapchain(s);  // one swapchain per window at a time
         if (g_nativeShown && g_cfg.bypassAfterNative == 2 && s->ic && !g_intelHung) {
             IntelCtx* c = s->ic;
@@ -2293,8 +2657,8 @@ static void decide(VSwap* s, double now) {
     if (!g_sess.onIntel || g_intelBroken || (s->bypassTried && !s->bypassOk)) { g_sess.want = PATH_NATIVE; return; }
     if (g_sess.probe == PROBE_OFF) {
         if (!g_cfg.probe) { g_sess.want = PATH_BYPASS; g_sess.probe = PROBE_DONE; return; }
-        if (!g_cfg.bypassAfterNative) {
-            logf("probe=1 is ignored: measuring native would switch the window to flip mode and the bypass could not "
+        if (!g_cfg.bypassAfterNative && !(s->bypassOk && s->useDx)) {
+            logf("probe=1 is ignored: the Intel output is not DXGI, so after measuring native the bypass could not "
                  "come back (set test_bypass_after_native=1 or 2 to test that)");
             g_sess.want = PATH_BYPASS;
             g_sess.probe = PROBE_DONE;
@@ -2433,8 +2797,11 @@ static void startWatchdog() {
                     continue;
                 }
                 if (logged == 0) stallFrom = last;
+                int xs = g_xStage.load(), ws = g_wStage.load(), cp = g_curPath.load();
+                bool xpBusy = xs == XS_OUTSIDE && ws == WS_IDLE && !g_intelHung;  // X-Plane itself (e.g. loading)
+                if (logged == 0 && xpBusy && gap < 15000.0) continue;
+                if (logged == 0 && xpBusy) logged = 1;
                 if ((logged == 0 && gap >= 3000.0) || (logged == 1 && gap >= 15000.0)) {
-                    int xs = g_xStage.load(), ws = g_wStage.load(), cp = g_curPath.load();
                     logf("[hang] no frame for %.1f s | X-Plane's thread: %s | worker: %s for %.1f s | path %s%s",
                          gap / 1000.0, kXStage[xs < 0 || xs > XS_N_FENCE ? 0 : xs],
                          kWStage[ws < 0 || ws > WS_I_PRESENT ? 0 : ws], (now - (double)g_wStageMs.load()) / 1000.0,
@@ -2452,6 +2819,7 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
     DevData* d = s->d;
     double t0 = nowMs();
     startWatchdog();
+    g_xpThread = GetCurrentThreadId();
     g_xStage = XS_PRESENT;
     uint32_t i = pi->pImageIndices[0];
     // frame interval (counted unless just after a switch)
@@ -2469,12 +2837,14 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
     }
     decide(s, t0);
     int want = g_sess.want.load();
-    if (want == PATH_BYPASS && s->path != PATH_BYPASS && g_nativeShown && !g_cfg.bypassAfterNative) {
+    if (want == PATH_BYPASS && s->path != PATH_BYPASS && g_nativeShown && !g_cfg.bypassAfterNative && s->bypassTried &&
+        !s->useDx) {
         static bool told = false;
         if (!told) {
             told = true;
             logf("bypass not resumed: native output was already shown on this window, and Windows would keep showing "
-                 "the old picture (flip mode) -> staying native; restart X-Plane to use the bypass again");
+                 "the old picture with the Intel Vulkan output (flip mode) -> staying native; restart X-Plane to use "
+                 "the bypass again");
         }
         g_sess.want = want = PATH_NATIVE;
         if (g_sess.probe == PROBE_RUN || g_sess.probe == PROBE_WAIT_STABLE) g_sess.probe = PROBE_DONE;
@@ -3076,6 +3446,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_CreateSwapchainKHR(VkDevice device, con
     DevData* d = devOf(key(device));
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
     if (!d->active || d->internal) return d->vkCreateSwapchainKHR(device, ci, pAllocator, pSwapchain);
+    g_xpThread = GetCurrentThreadId();
     d->worker->flush();
 
     VSwap* oldVs = vsOf(ci->oldSwapchain);

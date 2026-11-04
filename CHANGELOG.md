@@ -27,6 +27,10 @@ Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3
 - **Installer 0.9.3:** Global mode is an advanced option with an anti-cheat confirmation; detects running from inside
   the ZIP and restricted PowerShell; more detail in `installer-error.log`; `fallback` folder installs without
   PowerShell.
+- **Intel output through DXGI flip mode (D3D12)**, new default (`intel_output=auto`): the Intel GPU shows the frame
+  through a flip-model swapchain, reading the transfer block in place (`OpenExistingHeapFromAddress`) or through an
+  upload buffer. Both paths now use flip mode, so the layer can switch native <-> bypass again and the probe is back
+  on by default. `intel_output=vulkan` keeps the 0.9.2-style Intel Vulkan output (no return after native).
 - **No return to the bypass after native output** (found on the test laptop): NVIDIA's native output puts the
   window into DXGI flip mode, and an older Intel driver's output is then not shown any more, so the picture froze
   while X-Plane kept running. The layer now stays native for the rest of the session once native output was shown;

@@ -46,7 +46,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.3"
+#define XPOB_VERSION "0.9.3.1"
 #ifndef XPOB_BUILD
 #define XPOB_BUILD "dev"
 #endif
@@ -1132,6 +1132,7 @@ struct VSwap {
     ID3D12GraphicsCommandList* dxList[R]{};
     ID3D12Fence* dxFence = nullptr;
     HANDLE dxEvent = nullptr;
+    HANDLE dxLatency = nullptr;          // frame latency waitable object: a back buffer is free when signalled
     uint64_t dxValue = 0, dxSlotValue[R]{};
     ID3D12Heap* trialDxHeap = nullptr;
 
@@ -1321,6 +1322,7 @@ static void dxDropSwapchain(VSwap* s) {
     dxIdle(s);
     for (auto& b : s->dxBack) rel(b);
     rel(s->dxSwap);
+    if (s->dxLatency) { CloseHandle(s->dxLatency); s->dxLatency = nullptr; }
     for (auto& v : s->dxSlotValue) v = 0;
 }
 // Flip-model swapchain with the frame's size; DXGI stretches it to the window. X-Plane's thread only (creating
@@ -1338,7 +1340,9 @@ static bool dxEnsureSwapchain(VSwap* s) {
     sd.Scaling = DXGI_SCALING_STRETCH;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-    sd.Flags = g_dx->tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    // The waitable object lets the worker wait for a free back buffer with a time limit, so Present itself does
+    // not have to block when the compositor falls behind.
+    sd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | (g_dx->tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
     IDXGISwapChain1* sc1 = nullptr;
     HRESULT hr = E_FAIL;
     for (int tryN = 0; tryN < 10; ++tryN) {  // the previous swapchain on the window may take a moment to go away
@@ -1355,6 +1359,8 @@ static bool dxEnsureSwapchain(VSwap* s) {
     hr = sc1->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&s->dxSwap);
     rel(sc1);
     if (FAILED(hr)) { logf("Intel: IDXGISwapChain3 missing (0x%08lx)", (unsigned long)hr); return false; }
+    s->dxSwap->SetMaximumFrameLatency(2);
+    s->dxLatency = s->dxSwap->GetFrameLatencyWaitableObject();
     for (UINT i = 0; i < 3; ++i)
         if (FAILED(s->dxSwap->GetBuffer(i, __uuidof(ID3D12Resource), (void**)&s->dxBack[i]))) {
             logf("Intel: DXGI back buffer %u unavailable", i);
@@ -1369,6 +1375,15 @@ static bool dxEnsureSwapchain(VSwap* s) {
 // Worker thread: copy slot k into the next back buffer and present.
 static void dxFrame(VSwap* s, uint32_t k) {
     if (!s->dxSwap) return;  // being (re)created on X-Plane's thread: drop this frame
+    setWStage(WS_I_ACQUIRE);
+    if (s->dxLatency) {
+        DWORD w = WaitForSingleObject(s->dxLatency, 2000);
+        if (w != WAIT_OBJECT_0) {  // no back buffer free for 2 s: the Intel output is stuck
+            logf("[hang] DXGI: no free back buffer within 2 s -> treating the Intel side as failed");
+            intelFailure(s, "DXGI back buffer wait (timeout)", VK_ERROR_DEVICE_LOST);
+            return;
+        }
+    }
     setWStage(WS_I_SUBMIT);
     UINT idx = s->dxSwap->GetCurrentBackBufferIndex();
     ID3D12Resource* back = s->dxBack[idx % 3];
@@ -1481,6 +1496,7 @@ static void dxDestroy(VSwap* s) {
     if (!g_intelHung) dxIdle(s);
     for (auto& b : s->dxBack) rel(b);
     rel(s->dxSwap);
+    if (s->dxLatency) { CloseHandle(s->dxLatency); s->dxLatency = nullptr; }
     for (int k = 0; k < VSwap::R; ++k) {
         rel(s->dxList[k]);
         rel(s->dxAlloc[k]);
@@ -1490,6 +1506,40 @@ static void dxDestroy(VSwap* s) {
     rel(s->trialDxHeap);
     rel(s->dxFence);
     if (s->dxEvent) { CloseHandle(s->dxEvent); s->dxEvent = nullptr; }
+}
+
+// Wait for a GeForce fence. NVIDIA work cannot be abandoned (the GPU may still be writing the memory), so this
+// keeps waiting, but in 1 s steps: a long wait is logged, and a lost device returns instead of hanging.
+static bool nvFenceWait(DevData* d, VkFence f, const char* what) {
+    double t0 = nowMs();
+    bool told = false;
+    for (;;) {
+        VkResult r = d->vkWaitForFences(d->device, 1, &f, VK_TRUE, 1000ull * 1000 * 1000);
+        if (r == VK_SUCCESS) {
+            if (told) logf("[hang] GeForce %s finished after %.1f s", what, (nowMs() - t0) / 1000.0);
+            return true;
+        }
+        if (r != VK_TIMEOUT) {
+            logf("GeForce %s: wait failed (%d)%s", what, (int)r, r == VK_ERROR_DEVICE_LOST ? " - the NVIDIA GPU was reset" : "");
+            return false;
+        }
+        if (!told && nowMs() - t0 > 3000.0) {
+            told = true;
+            logf("[hang] GeForce %s: still waiting after 3 s (the NVIDIA GPU has not finished)", what);
+        }
+    }
+}
+static VkResult nvAcquire(DevData* d, VkSwapchainKHR sc, VkSemaphore sem, uint32_t* idx) {
+    double t0 = nowMs();
+    bool told = false;
+    for (;;) {
+        VkResult r = d->vkAcquireNextImageKHR(d->device, sc, 1000ull * 1000 * 1000, sem, VK_NULL_HANDLE, idx);
+        if (r != VK_TIMEOUT && r != VK_NOT_READY) return r;
+        if (!told && nowMs() - t0 > 3000.0) {
+            told = true;
+            logf("[hang] NVIDIA (native) acquire: no image after 3 s, still waiting");
+        }
+    }
 }
 
 // Wait for an Intel fence, but never forever: an old or broken Intel driver must not freeze X-Plane. After 5 s
@@ -1648,7 +1698,7 @@ static void destroyBypass(VSwap* s) {
     VkDevice dev = d->device;
     dxDestroy(s);
     for (int k = 0; k < VSwap::R; ++k)
-        if (s->fenceUsed[k]) d->vkWaitForFences(dev, 1, &s->fence[k], VK_TRUE, UINT64_MAX);
+        if (s->fenceUsed[k]) nvFenceWait(d, s->fence[k], "copy (teardown)");
     if (s->ic && !g_intelHung) {  // hung Intel device: leak its objects rather than block X-Plane
         IntelCtx* c = s->ic;
         waitIntelIdle(s);
@@ -1928,7 +1978,7 @@ static void destroyNativeSwapchain(VSwap* s) {
     DevData* d = s->d;
     for (int k = 0; k < VSwap::R; ++k)
         if (s->nFenceUsed[k]) {
-            d->vkWaitForFences(d->device, 1, &s->nFence[k], VK_TRUE, UINT64_MAX);
+            nvFenceWait(d, s->nFence[k], "native copy");
             d->vkResetFences(d->device, 1, &s->nFence[k]);
             s->nFenceUsed[k] = false;
         }
@@ -2035,7 +2085,7 @@ static bool nativeForFamily(VSwap* s, uint32_t fam) {
     if (s->nPool) {
         for (int k = 0; k < VSwap::R; ++k)
             if (s->nFenceUsed[k]) {
-                d->vkWaitForFences(d->device, 1, &s->nFence[k], VK_TRUE, UINT64_MAX);
+                nvFenceWait(d, s->nFence[k], "native copy");
                 d->vkResetFences(d->device, 1, &s->nFence[k]);
                 s->nFenceUsed[k] = false;
             }
@@ -2252,7 +2302,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     uint32_t k = s->ring++ % VSwap::R;
     if (s->fenceUsed[k]) {
         setWStage(WS_OLD_GF);
-        d->vkWaitForFences(dev, 1, &s->fence[k], VK_TRUE, UINT64_MAX);
+        nvFenceWait(d, s->fence[k], "copy");
         d->vkResetFences(dev, 1, &s->fence[k]);
         s->fenceUsed[k] = false;
     }
@@ -2311,7 +2361,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     // 2) wait until the frame is in the transfer buffer
     setWStage(WS_GF_FENCE);
     double a = nowMs();
-    d->vkWaitForFences(dev, 1, &s->fence[k], VK_TRUE, UINT64_MAX);
+    nvFenceWait(d, s->fence[k], "copy");
     d->vkResetFences(dev, 1, &s->fence[k]);
     s->fenceUsed[k] = false;
     double tFence = nowMs() - a, tGpu = -1, tCpu = -1;
@@ -2510,7 +2560,7 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
     uint32_t k = s->nRing++ % VSwap::R;
     if (s->nFenceUsed[k]) {
         g_xStage = XS_N_FENCE;
-        d->vkWaitForFences(d->device, 1, &s->nFence[k], VK_TRUE, UINT64_MAX);
+        nvFenceWait(d, s->nFence[k], "native copy");
         d->vkResetFences(d->device, 1, &s->nFence[k]);
         s->nFenceUsed[k] = false;
     }
@@ -2526,13 +2576,13 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
     uint32_t ri = 0;
     g_xStage = XS_N_ACQUIRE;
     double a = nowMs();
-    VkResult ar = d->vkAcquireNextImageKHR(d->device, s->nswap, UINT64_MAX, s->nAcq[k], VK_NULL_HANDLE, &ri);
+    VkResult ar = nvAcquire(d, s->nswap, s->nAcq[k], &ri);
     if (ar == VK_ERROR_OUT_OF_DATE_KHR) {
         if (!createNativeSwapchain(s)) {
             dropFrame(s, queue, i, pi);
             return s->nativeWhyNot.empty() ? VK_SUCCESS : VK_ERROR_SURFACE_LOST_KHR;
         }
-        ar = d->vkAcquireNextImageKHR(d->device, s->nswap, UINT64_MAX, s->nAcq[k], VK_NULL_HANDLE, &ri);
+        ar = nvAcquire(d, s->nswap, s->nAcq[k], &ri);
     }
     double tAcq = nowMs() - a;
     if (ar < 0 || ri >= s->nImgs.size()) {

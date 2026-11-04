@@ -1,6 +1,6 @@
 ﻿$script:ProductName = 'XP Optimus Bypass'
 $script:InstallerVersion = '0.9.3'
-$script:DllVersion = '0.9.3'
+$script:DllVersion = '0.9.3.1'
 $script:LayerKey = 'HKCU:\Software\Khronos\Vulkan\ImplicitLayers'
 $script:UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\XPOptimusBypass'
 $script:RootFiles = @('XP_Optimus_Bypass.bat', 'README.txt', 'LICENSE', 'CHANGELOG.md')

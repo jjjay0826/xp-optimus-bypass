@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.3.1 (testing) — 2026-11-05
+
+- **DXGI Present no longer has to block:** the Intel swapchain uses a frame latency waitable object; the worker waits
+  for a free back buffer for at most 2 s, then treats the Intel side as failed and switches to native.
+- **NVIDIA waits are reported:** GeForce fence waits and the native acquire wait in 1 s steps. NVIDIA work cannot be
+  abandoned (the GPU may still write the memory), so they keep waiting, but a wait over 3 s is logged as `[hang]`
+  and a lost device returns instead of hanging. No `UINT64_MAX` waits are left in the layer.
+
 ## 0.9.3 — 2026-11-04
 
 Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3.md)). Tested on an ASUS TUF F15

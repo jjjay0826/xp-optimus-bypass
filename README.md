@@ -4,13 +4,13 @@ A Vulkan layer for X-Plane 12 on Windows Optimus laptops where an NVIDIA GeForce
 
 ## Download
 
-**Current release: [0.9.3-beta](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3-beta)** — compatibility rework, tested on the author's ASUS TUF F15 (GTX 1650 + UHD Graphics, Windows 11). Other laptops have not been tested yet; the anonymous reports (see below) will show where it works.
+**Current release: [0.9.3](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3)** — compatibility rework, tested on the author's ASUS TUF F15 (GTX 1650 + UHD Graphics, Windows 11). Other laptops have not been tested yet; the anonymous reports (see below) will show where it works.
 
-Download **[XP_Optimus_Bypass_v0.9.3-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.3-beta/XP_Optimus_Bypass_v0.9.3-beta.zip)** for the installer. The automatically generated “Source code” archives are for developers. The previous version, [0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2), stays available.
+Download **[XP_Optimus_Bypass_v0.9.3.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.3/XP_Optimus_Bypass_v0.9.3.zip)** for the installer. The automatically generated “Source code” archives are for developers. The previous version, [0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2), stays available.
 
 [繁體中文](README.zh-TW.md) · [Release history](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [Installer changelog](installer/CHANGELOG.md) · [Quick guide / 英中操作說明](installer/README.txt) · [0.9.3 plan](docs/PLAN-0.9.3.md)
 
-## What's new in 0.9.3-beta
+## What's new in 0.9.3
 
 - **Intel output through DXGI flip mode (D3D12).** The Intel GPU shows the frame through a flip-model swapchain and
   reads the transfer block in place, so switching to the native NVIDIA output and back no longer leaves a frozen
@@ -63,7 +63,7 @@ The original investigation used an Intel 10th-generation laptop. Benefits on oth
 
 ## Installation
 
-1. Fully extract `XP_Optimus_Bypass_v0.9.3-beta.zip`. Keep the BAT file and the `app`, `docs` and `fallback` folders together.
+1. Fully extract `XP_Optimus_Bypass_v0.9.3.zip`. Keep the BAT file and the `app`, `docs` and `fallback` folders together.
 2. Close X-Plane and run **`XP_Optimus_Bypass.bat`**.
 3. Confirm the **X-Plane installation path**. Select the intended installation from the list, use **Browse**, or enter the path to `X-Plane.exe` or its containing folder.
 4. Choose a separate folder in which to install **XP Optimus Bypass**. The default is `%LOCALAPPDATA%\Programs\XP Optimus Bypass`. Choose a location your Windows account can write to.
@@ -98,7 +98,7 @@ Each DLL message is flushed when written. The DLL starts a fresh log for each X-
 When the bypass becomes active, look for records such as:
 
 ```text
-XP Optimus Bypass 0.9.3-beta (build ...) loaded in X-Plane.exe | ...
+XP Optimus Bypass 0.9.3 (build ...) loaded in X-Plane.exe | ...
 [diag] Intel output: DXGI flip model through D3D12 on Intel(R) ... Graphics | ...
 ACTIVE: X-Plane ... -> GeForce -> host memory -> Intel -> screen
 ```
@@ -138,7 +138,7 @@ These measurements were made on the author's ASUS TUF F15, with an i5-10300H, GT
 
 | Test | Layer off / native | Layer on (bypass) |
 |---|---|---|
-| Baron 58 at KSEA, 0.9.3-beta measured comparison (`[probe]` log lines, median frame time) | 43.6–46.9 ms (about 21–23 FPS) | 22.2–24.7 ms (about 40–45 FPS) |
+| Baron 58 at KSEA, 0.9.3 measured comparison (`[probe]` log lines, median frame time) | 43.6–46.9 ms (about 21–23 FPS) | 22.2–24.7 ms (about 40–45 FPS) |
 | Baron 58 at KSEA 16L, clear weather, 12:00 local (`0.9.1-beta`) | 21.3 FPS median | 34.9 FPS median |
 | Frames over 50 ms per 300 frames, same KSEA test | 37–63 | 0–4 |
 | Baron 58 at RCYU, local midnight (early test build) | About 20 FPS | 40–45 FPS |
@@ -197,7 +197,7 @@ certutil -hashfile app\xp_optimus_bypass.dll SHA256
 Compare the result with the `app/xp_optimus_bypass.dll` entry in the packaged `SHA256SUMS.txt` (the entry may start with `./`). Official GitHub Actions release builds also provide build-provenance attestations:
 
 ```sh
-gh attestation verify XP_Optimus_Bypass_v0.9.3-beta.zip -R jjjay0826/xp-optimus-bypass
+gh attestation verify XP_Optimus_Bypass_v0.9.3.zip -R jjjay0826/xp-optimus-bypass
 ```
 
 Attestation applies to the exact archive built by the workflow; it does not carry over to a modified or repackaged ZIP.
@@ -208,10 +208,10 @@ From a source checkout, using the MinGW-w64 toolchain described in `build.sh`:
 
 ```sh
 sh build.sh
-sh package.sh 0.9.3-beta
+sh package.sh 0.9.3
 ```
 
-The output is `XP_Optimus_Bypass_v0.9.3-beta.zip`.
+The output is `XP_Optimus_Bypass_v0.9.3.zip`.
 
 - Vulkan layer source: [`src/xp_optimus_bypass.cpp`](src/xp_optimus_bypass.cpp)
 - Installer sources and documentation: [`installer/`](installer/)

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Existing release to receive the installer (e.g. v0.9.3-beta); empty = build only'
+        description: 'Existing release to receive the installer (e.g. v0.9.3); empty = build only'
         required: false
         default: ''
       source_ref:
@@ -155,7 +155,7 @@ jobs:
           $r = Get-XPReport $fx 'xplane' '0.9.3'
           $json = ConvertTo-XPReportJson $r
           Write-Host $json
-          if ($r.layer -ne '0.9.3-beta+1a2b3c4d') { throw 'report: layer version' }
+          if ($r.layer -ne '0.9.3+1a2b3c4d') { throw 'report: layer version' }
           if ($r.render_gpu -ne 'NVIDIA GeForce GTX 1650' -or $r.render_driver -ne '595.97') { throw 'report: render GPU' }
           if ($r.intel_gpu -ne 'Intel(R) UHD Graphics') { throw 'report: Intel GPU' }
           if ($r.windows -ne '10.0.26300' -or $r.xplane -ne '12.4.3.11') { throw 'report: versions' }

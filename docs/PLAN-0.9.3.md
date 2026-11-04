@@ -1,6 +1,6 @@
 # 0.9.3 實作規劃：相容性與診斷
 
-> 狀態（2026-11-04）：M1–M6 已完成，在 ASUS TUF F15 上實機驗收後發布為 0.9.3-beta 正式版；驗收結果在 `installer/docs/TESTING.md`。實測中另外加入 DXGI flip 輸出、防卡死、Steam 直接啟動，並修正自動比較在選單中開始的問題（見 CHANGELOG）。螢幕切換改用輪詢（每秒檢查一次），不攔截 X-Plane 視窗的 `WM_DISPLAYCHANGE`，避免動到 X-Plane 的視窗程序。
+> 狀態（2026-11-04）：M1–M6 已完成，在 ASUS TUF F15 上實機驗收後發布為 0.9.3 正式版；驗收結果在 `installer/docs/TESTING.md`。實測中另外加入 DXGI flip 輸出、防卡死、Steam 直接啟動，並修正自動比較在選單中開始的問題（見 CHANGELOG）。螢幕切換改用輪詢（每秒檢查一次），不攔截 X-Plane 視窗的 `WM_DISPLAYCHANGE`，避免動到 X-Plane 的視窗程序。
 
 目標：在 README 列出的條件都符合的電腦上，盡量讓 bypass 正常運作。不能運作的時候，要自動退回 NVIDIA 原本的路徑，而且 log 要寫清楚原因。
 

@@ -1,4 +1,4 @@
-# 0.9.3 / Installer — 2026-11-04 (DLL 0.9.3-beta)
+# 0.9.3 / Installer — 2026-11-04 (DLL 0.9.3)
 
 - Global mode moved under an advanced checkbox and confirmed with an anti-cheat warning.
 - Detects a ZIP that was not extracted and restricted (Constrained Language) PowerShell; removes the download mark

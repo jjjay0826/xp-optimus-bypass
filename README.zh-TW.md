@@ -6,13 +6,13 @@
 
 ## 下載
 
-**目前版本：[0.9.3-beta](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3-beta)**：相容性大改版，已在作者的 ASUS TUF F15（GTX 1650 + UHD Graphics，Windows 11）上實測。其他筆電還沒測過，匿名回報（見下方）會顯示在哪些電腦上能用。
+**目前版本：[0.9.3](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3)**：相容性大改版，已在作者的 ASUS TUF F15（GTX 1650 + UHD Graphics，Windows 11）上實測。其他筆電還沒測過，匿名回報（見下方）會顯示在哪些電腦上能用。
 
-下載 **[XP_Optimus_Bypass_v0.9.3-beta.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.3-beta/XP_Optimus_Bypass_v0.9.3-beta.zip)**。GitHub 自動產生的「Source code」壓縮檔是給開發者的。上一版 [0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2) 仍可下載。
+下載 **[XP_Optimus_Bypass_v0.9.3.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.3/XP_Optimus_Bypass_v0.9.3.zip)**。GitHub 自動產生的「Source code」壓縮檔是給開發者的。上一版 [0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2) 仍可下載。
 
 [所有版本](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [安裝程式變更紀錄](installer/CHANGELOG.md) · [快速說明（英中）](installer/README.txt) · [0.9.3 規劃](docs/PLAN-0.9.3.md)
 
-## 0.9.3-beta 新功能
+## 0.9.3 新功能
 
 - **Intel 改用 DXGI flip 模式輸出（D3D12）**：Intel 內顯直接讀取共享記憶體裡的畫面，透過 flip 模式顯示。因為 NVIDIA 的輸出也是 flip 模式，切到 NVIDIA 原生輸出再切回來，畫面不會再停住（舊版 Intel Vulkan 驅動會）。`intel_output=vulkan` 可改回 0.9.2 的做法。
 - **Intel 驅動卡住也不會讓 X-Plane 卡死**：等待 Intel 有時間上限，超過就改用原生輸出；超過 3 秒沒有新畫面時，看門狗會在 log 寫 `[hang]`。
@@ -37,7 +37,7 @@
 
 ## 安裝
 
-1. 完整解壓縮 `XP_Optimus_Bypass_v0.9.3-beta.zip`，BAT 檔和 `app`、`docs`、`fallback` 資料夾要放在一起。
+1. 完整解壓縮 `XP_Optimus_Bypass_v0.9.3.zip`，BAT 檔和 `app`、`docs`、`fallback` 資料夾要放在一起。
 2. 關閉 X-Plane，執行 **`XP_Optimus_Bypass.bat`**。
 3. 確認 **X-Plane 的安裝位置**：從清單選、按「瀏覽」，或輸入 `X-Plane.exe` 或它所在資料夾的路徑。
 4. 選一個資料夾安裝 **XP Optimus Bypass**，預設是 `%LOCALAPPDATA%\Programs\XP Optimus Bypass`，要選你的 Windows 帳號能寫入的位置。
@@ -68,7 +68,7 @@ Log 寫在**你選的 XP Optimus Bypass 安裝資料夾第一層**，不是下�
 bypass 啟用時會看到：
 
 ```text
-XP Optimus Bypass 0.9.3-beta (build ...) loaded in X-Plane.exe | ...
+XP Optimus Bypass 0.9.3 (build ...) loaded in X-Plane.exe | ...
 [diag] Intel output: DXGI flip model through D3D12 on Intel(R) ... Graphics | ...
 ACTIVE: X-Plane ... -> GeForce -> host memory -> Intel -> screen
 ```
@@ -106,7 +106,7 @@ DLL 還在使用中時，先關閉相關的 Vulkan 程式再試一次。之後�
 
 | 測試 | 未用 layer／native | 使用 layer（bypass） |
 |---|---|---|
-| Baron 58，KSEA，0.9.3-beta 自動比較（log 的 probe 紀錄，每幀中位數） | 43.6～46.9 ms（約 21～23 FPS） | 22.2～24.7 ms（約 40～45 FPS） |
+| Baron 58，KSEA，0.9.3 自動比較（log 的 probe 紀錄，每幀中位數） | 43.6～46.9 ms（約 21～23 FPS） | 22.2～24.7 ms（約 40～45 FPS） |
 | Baron 58，KSEA 16L，晴天，當地中午（`0.9.1-beta`） | 中位數 21.3 FPS | 中位數 34.9 FPS |
 | 同一 KSEA 測試，每 300 幀中超過 50 ms 的幀數 | 37～63 | 0～4 |
 | Baron 58，RCYU，當地午夜（早期測試版） | 約 20 FPS | 40～45 FPS |
@@ -159,7 +159,7 @@ certutil -hashfile app\xp_optimus_bypass.dll SHA256
 把結果和 `SHA256SUMS.txt` 裡 `app/xp_optimus_bypass.dll` 那一行比對（前面可能有 `./`）。GitHub Actions 發布的版本另有建置來源證明：
 
 ```sh
-gh attestation verify XP_Optimus_Bypass_v0.9.3-beta.zip -R jjjay0826/xp-optimus-bypass
+gh attestation verify XP_Optimus_Bypass_v0.9.3.zip -R jjjay0826/xp-optimus-bypass
 ```
 
 證明只適用於 workflow 產生的原始壓縮檔，修改或重新打包過的 zip 就不適用。
@@ -170,10 +170,10 @@ gh attestation verify XP_Optimus_Bypass_v0.9.3-beta.zip -R jjjay0826/xp-optimus-
 
 ```sh
 sh build.sh
-sh package.sh 0.9.3-beta
+sh package.sh 0.9.3
 ```
 
-會產生 `XP_Optimus_Bypass_v0.9.3-beta.zip`。
+會產生 `XP_Optimus_Bypass_v0.9.3.zip`。
 
 - Vulkan layer 原始碼：[`src/xp_optimus_bypass.cpp`](src/xp_optimus_bypass.cpp)
 - 安裝程式原始碼和文件：[`installer/`](installer/)

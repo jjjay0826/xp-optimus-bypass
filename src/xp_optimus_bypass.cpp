@@ -46,7 +46,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.3-beta"
+#define XPOB_VERSION "0.9.3"
 #ifndef XPOB_BUILD
 #define XPOB_BUILD "dev"
 #endif

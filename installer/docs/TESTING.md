@@ -1,4 +1,4 @@
-# 0.9.3-beta acceptance / 0.9.3 實機驗收
+# 0.9.3 acceptance / 0.9.3 實機驗收
 
 Each step: start X-Plane with the dedicated launcher, fly about 2 minutes at KSEA 16L (benchmark scenario), close
 X-Plane, keep the log. Change only the listed INI lines, then set them back. / 每一步都用專用入口啟動，

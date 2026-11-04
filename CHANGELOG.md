@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.3-beta — 2026-11-04
+## 0.9.3 — 2026-11-04
 
 Compatibility and diagnostics rework (plan: [docs/PLAN-0.9.3.md](docs/PLAN-0.9.3.md)). Tested on an ASUS TUF F15
 (GTX 1650 + UHD Graphics, Intel driver 101.1999, X-Plane 12.4.3): bypass ~44 FPS vs native ~23 FPS at KSEA, switching

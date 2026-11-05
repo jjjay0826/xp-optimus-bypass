@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.3.2 — testing
+
+- **GeForce fence waits have a total limit:** after 10 s without an answer (Windows normally resets a stuck GPU
+  after about 2 s), the NVIDIA GPU counts as lost. The layer stops waiting on it, leaves memory the GPU might still
+  write allocated instead of freeing it, and reports `VK_ERROR_DEVICE_LOST` to X-Plane instead of freezing.
+- **Native acquire is limited to 2 s:** the frame is skipped and the layer's NVIDIA swapchain is recreated; after 3
+  timeouts in a row X-Plane gets a real NVIDIA swapchain.
+- **Worker flush is logged:** it still waits for queued work (that work uses resources the caller frees next), but
+  every wait inside that work is now time-limited, and a flush over 3 s is logged as `[hang]`.
+- The new limits count wait steps rather than reading the clock, so sleep / resume does not count as waiting.
+
 ## 0.9.3.1 — 2026-11-04
 
 - **DXGI Present no longer has to block:** the Intel swapchain uses a frame latency waitable object; the worker waits

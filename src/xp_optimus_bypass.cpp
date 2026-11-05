@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <chrono>
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
@@ -46,7 +47,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.3.1"
+#define XPOB_VERSION "0.9.3.2"
 #ifndef XPOB_BUILD
 #define XPOB_BUILD "dev"
 #endif
@@ -86,6 +87,7 @@ static LARGE_INTEGER g_freq;
 static thread_local bool g_internalCreate = false;
 static std::atomic<bool> g_intelBroken{false};    // Intel side failed: native path for the rest of the session
 static std::atomic<bool> g_intelHung{false};      // an Intel wait timed out: never wait on the Intel device again
+static std::atomic<bool> g_nvHung{false};         // a GeForce fence gave no answer for 10 s: device treated as lost
 // NVIDIA's native output puts the window into DXGI flip mode. Older Intel Vulkan drivers present the old way, which
 // Windows does not show on a window that has used flip mode: after native output the bypass would keep running
 // but the picture would stay frozen. So once native output was shown, the bypass does not come back (by default).
@@ -506,10 +508,18 @@ public:
         }
         cv_.notify_one();
     }
+    // Wait until all work pushed so far has finished. This cannot return early: callers free resources the queued
+    // work uses. It is still bounded, because every wait inside the work is time-limited (GeForce fence 2 x 10 s,
+    // Intel fence 5 s, DXGI 2 s; after a GeForce or Intel hang the work returns at once). A long wait is logged.
     void flush() {
         std::unique_lock<std::mutex> lk(m_);
         uint64_t target = pushed_;
-        done_.wait(lk, [&] { return finished_ >= target; });
+        int secs = 0;
+        while (!done_.wait_for(lk, std::chrono::seconds(1), [&] { return finished_ >= target; })) {
+            if (++secs == 3) logf("[hang] waiting for the worker thread (%llu job(s) left)",
+                                  (unsigned long long)(target - finished_));
+        }
+        if (secs >= 3) logf("[hang] worker thread finished after about %d s", secs + 1);
     }
 
 private:
@@ -1140,6 +1150,8 @@ struct VSwap {
     bool nativeTried = false, nativeOk = false;
     std::string nativeWhyNot;
     VkSwapchainKHR nswap = VK_NULL_HANDLE;
+    bool nRecreate = false;  // the last acquire timed out: recreate the NVIDIA swapchain before the next frame
+    int nAcqTimeouts = 0;    // acquire timeouts in a row
     std::vector<VkImage> nImgs;
     std::vector<VkSemaphore> nReady;  // one per real swapchain image
     VkExtent2D nExt{};
@@ -1508,38 +1520,46 @@ static void dxDestroy(VSwap* s) {
     if (s->dxEvent) { CloseHandle(s->dxEvent); s->dxEvent = nullptr; }
 }
 
-// Wait for a GeForce fence. NVIDIA work cannot be abandoned (the GPU may still be writing the memory), so this
-// keeps waiting, but in 1 s steps: a long wait is logged, and a lost device returns instead of hanging.
+// Wait for a GeForce fence, for at most kNvFenceSteps x 1 s. Windows resets a GPU whose work runs for more than
+// about 2 s (TDR), so a fence that stays unsignaled for 10 s means the NVIDIA side is stuck. Then g_nvHung is set:
+// the layer never waits on NVIDIA again, never frees or reuses memory the GPU might still write (it leaks it), and
+// reports VK_ERROR_DEVICE_LOST to X-Plane instead of freezing. Steps are counted instead of reading the clock, so a
+// sleep / resume of the PC does not count as waiting.
+static constexpr int kNvFenceSteps = 10;
 static bool nvFenceWait(DevData* d, VkFence f, const char* what) {
-    double t0 = nowMs();
+    if (g_nvHung) return d->vkWaitForFences(d->device, 1, &f, VK_TRUE, 0) == VK_SUCCESS;
     bool told = false;
-    for (;;) {
+    for (int step = 0;; ++step) {
         VkResult r = d->vkWaitForFences(d->device, 1, &f, VK_TRUE, 1000ull * 1000 * 1000);
         if (r == VK_SUCCESS) {
-            if (told) logf("[hang] GeForce %s finished after %.1f s", what, (nowMs() - t0) / 1000.0);
+            if (told) logf("[hang] GeForce %s finished after about %d s", what, step + 1);
             return true;
         }
         if (r != VK_TIMEOUT) {
             logf("GeForce %s: wait failed (%d)%s", what, (int)r, r == VK_ERROR_DEVICE_LOST ? " - the NVIDIA GPU was reset" : "");
+            g_nvHung = true;
             return false;
         }
-        if (!told && nowMs() - t0 > 3000.0) {
+        if (!told && step + 1 >= 3) {
             told = true;
             logf("[hang] GeForce %s: still waiting after 3 s (the NVIDIA GPU has not finished)", what);
         }
-    }
-}
-static VkResult nvAcquire(DevData* d, VkSwapchainKHR sc, VkSemaphore sem, uint32_t* idx) {
-    double t0 = nowMs();
-    bool told = false;
-    for (;;) {
-        VkResult r = d->vkAcquireNextImageKHR(d->device, sc, 1000ull * 1000 * 1000, sem, VK_NULL_HANDLE, idx);
-        if (r != VK_TIMEOUT && r != VK_NOT_READY) return r;
-        if (!told && nowMs() - t0 > 3000.0) {
-            told = true;
-            logf("[hang] NVIDIA (native) acquire: no image after 3 s, still waiting");
+        if (step + 1 >= kNvFenceSteps) {
+            if (!g_nvHung.exchange(true))
+                logf("[hang] GeForce %s: no answer for %d s -> NVIDIA GPU treated as lost; the layer stops waiting on it "
+                     "and reports a lost device to X-Plane", what, kNvFenceSteps);
+            return false;
         }
     }
+}
+// Acquire an image of the layer's NVIDIA swapchain, for at most 2 s (4 x 0.5 s, counted). Returns VK_TIMEOUT then;
+// the caller skips the frame and recreates the swapchain instead of blocking X-Plane's thread.
+static VkResult nvAcquire(DevData* d, VkSwapchainKHR sc, VkSemaphore sem, uint32_t* idx) {
+    for (int step = 0; step < 4; ++step) {
+        VkResult r = d->vkAcquireNextImageKHR(d->device, sc, 500ull * 1000 * 1000, sem, VK_NULL_HANDLE, idx);
+        if (r != VK_TIMEOUT && r != VK_NOT_READY) return r;
+    }
+    return VK_TIMEOUT;
 }
 
 // Wait for an Intel fence, but never forever: an old or broken Intel driver must not freeze X-Plane. After 5 s
@@ -1697,8 +1717,13 @@ static void destroyBypass(VSwap* s) {
     DevData* d = s->d;
     VkDevice dev = d->device;
     dxDestroy(s);
+    bool nvBusy = false;  // GeForce copy still unfinished: its memory must stay allocated
     for (int k = 0; k < VSwap::R; ++k)
-        if (s->fenceUsed[k]) nvFenceWait(d, s->fence[k], "copy (teardown)");
+        if (s->fenceUsed[k] && !nvFenceWait(d, s->fence[k], "copy (teardown)")) nvBusy = true;
+    if (nvBusy) {
+        logf("bypass teardown: GeForce copy unfinished -> its buffers are left allocated (leaked) instead of freed");
+        return;
+    }
     if (s->ic && !g_intelHung) {  // hung Intel device: leak its objects rather than block X-Plane
         IntelCtx* c = s->ic;
         waitIntelIdle(s);
@@ -1978,10 +2003,11 @@ static void destroyNativeSwapchain(VSwap* s) {
     DevData* d = s->d;
     for (int k = 0; k < VSwap::R; ++k)
         if (s->nFenceUsed[k]) {
-            nvFenceWait(d, s->nFence[k], "native copy");
+            if (!nvFenceWait(d, s->nFence[k], "native copy")) return;  // GPU stuck: leave everything allocated
             d->vkResetFences(d->device, 1, &s->nFence[k]);
             s->nFenceUsed[k] = false;
         }
+    if (g_nvHung) return;  // vkQueueWaitIdle has no time limit: never call it on a stuck GPU
     if (s->nswap) {
         if (s->nQueue) d->vkQueueWaitIdle(s->nQueue);  // presents of the old images must be finished
         d->vkDestroySwapchainKHR(d->device, s->nswap, nullptr);
@@ -1995,6 +2021,7 @@ static void destroyNativeSwapchain(VSwap* s) {
 static void destroyNative(VSwap* s) {
     DevData* d = s->d;
     destroyNativeSwapchain(s);
+    if (g_nvHung) return;  // fences may still be in use by the stuck GPU: leak them
     for (int k = 0; k < VSwap::R; ++k) {
         if (s->nFence[k]) d->vkDestroyFence(d->device, s->nFence[k], nullptr);
         if (s->nAcq[k]) d->vkDestroySemaphore(d->device, s->nAcq[k], nullptr);
@@ -2085,7 +2112,10 @@ static bool nativeForFamily(VSwap* s, uint32_t fam) {
     if (s->nPool) {
         for (int k = 0; k < VSwap::R; ++k)
             if (s->nFenceUsed[k]) {
-                nvFenceWait(d, s->nFence[k], "native copy");
+                if (!nvFenceWait(d, s->nFence[k], "native copy")) {
+                    s->nativeWhyNot = "the NVIDIA GPU does not finish its work";
+                    return false;
+                }
                 d->vkResetFences(d->device, 1, &s->nFence[k]);
                 s->nFenceUsed[k] = false;
             }
@@ -2302,7 +2332,17 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     uint32_t k = s->ring++ % VSwap::R;
     if (s->fenceUsed[k]) {
         setWStage(WS_OLD_GF);
-        nvFenceWait(d, s->fence[k], "copy");
+        if (!nvFenceWait(d, s->fence[k], "copy")) {  // NVIDIA stuck: drop this frame, slot stays in use
+            s->err = (int)VK_ERROR_DEVICE_LOST;
+            releasePending(d, *waits);
+            {
+                std::lock_guard<std::mutex> lk(s->m);
+                if (i < s->v.size()) { s->v[i].copyPending = false; s->v[i].state = 0; }
+            }
+            s->cv.notify_all();
+            setWStage(WS_IDLE);
+            return;
+        }
         d->vkResetFences(dev, 1, &s->fence[k]);
         s->fenceUsed[k] = false;
     }
@@ -2361,7 +2401,11 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     // 2) wait until the frame is in the transfer buffer
     setWStage(WS_GF_FENCE);
     double a = nowMs();
-    nvFenceWait(d, s->fence[k], "copy");
+    if (!nvFenceWait(d, s->fence[k], "copy")) {  // fence stays marked used: the slot is never reused
+        s->err = (int)VK_ERROR_DEVICE_LOST;
+        setWStage(WS_IDLE);
+        return;
+    }
     d->vkResetFences(dev, 1, &s->fence[k]);
     s->fenceUsed[k] = false;
     double tFence = nowMs() - a, tGpu = -1, tCpu = -1;
@@ -2480,6 +2524,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
 static VkResult vAcquire(VSwap* s, VkSemaphore sem, VkFence fence, uint32_t* pIndex) {
     DevData* d = s->d;
     if (g_virtualBroken) return VK_ERROR_OUT_OF_DATE_KHR;  // X-Plane recreates -> real NVIDIA swapchain
+    if (g_nvHung) return VK_ERROR_DEVICE_LOST;
     double t0 = nowMs();
     int e = s->err.exchange(0);
     if (e < 0) return (VkResult)e;
@@ -2553,6 +2598,14 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
     if (fam == UINT32_MAX) fam = d->copyFamily;
     if (!nativeForFamily(s, fam)) { dropFrame(s, queue, i, pi); return VK_ERROR_SURFACE_LOST_KHR; }
     s->nQueue = queue;
+    if (g_nvHung) return VK_ERROR_DEVICE_LOST;
+    if (s->nRecreate && s->nswap) {
+        s->nRecreate = false;
+        if (!createNativeSwapchain(s)) {
+            dropFrame(s, queue, i, pi);
+            return s->nativeWhyNot.empty() ? VK_SUCCESS : VK_ERROR_SURFACE_LOST_KHR;
+        }
+    }
     if (!s->nswap && !createNativeSwapchain(s)) {
         dropFrame(s, queue, i, pi);
         return s->nativeWhyNot.empty() ? VK_SUCCESS : VK_ERROR_SURFACE_LOST_KHR;  // minimized: skip
@@ -2560,7 +2613,7 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
     uint32_t k = s->nRing++ % VSwap::R;
     if (s->nFenceUsed[k]) {
         g_xStage = XS_N_FENCE;
-        nvFenceWait(d, s->nFence[k], "native copy");
+        if (!nvFenceWait(d, s->nFence[k], "native copy")) return VK_ERROR_DEVICE_LOST;
         d->vkResetFences(d->device, 1, &s->nFence[k]);
         s->nFenceUsed[k] = false;
     }
@@ -2585,6 +2638,18 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
         ar = nvAcquire(d, s->nswap, s->nAcq[k], &ri);
     }
     double tAcq = nowMs() - a;
+    if (ar == VK_TIMEOUT) {  // no image in 2 s: skip this frame instead of blocking X-Plane
+        dropFrame(s, queue, i, pi);
+        if (++s->nAcqTimeouts >= 3) {
+            logf("[hang] NVIDIA (native) acquire: no image in 2 s, 3 times in a row");
+            s->nativeWhyNot = "the NVIDIA swapchain gives no images";
+            return VK_ERROR_SURFACE_LOST_KHR;  // caller: X-Plane gets a real NVIDIA swapchain
+        }
+        logf("[hang] NVIDIA (native) acquire: no image in 2 s -> frame skipped, swapchain recreated");
+        s->nRecreate = true;
+        return VK_SUCCESS;
+    }
+    s->nAcqTimeouts = 0;
     if (ar < 0 || ri >= s->nImgs.size()) {
         dropFrame(s, queue, i, pi);
         return ar == VK_ERROR_DEVICE_LOST ? VK_ERROR_DEVICE_LOST : VK_ERROR_SURFACE_LOST_KHR;

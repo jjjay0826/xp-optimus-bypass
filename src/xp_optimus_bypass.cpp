@@ -279,10 +279,10 @@ static void initOnce() {
     FILE* lf = _wfsopen(g_logPath.c_str(), L"w", _SH_DENYNO);  // fresh log every run
     if (lf) fclose(lf);
     static const char* prefNames[] = {"auto", "bypass", "native", "cpu-copy"};
-    logf("XP Optimus Bypass %s (build %s) loaded in X-Plane.exe | mode=%s path=%s probe=%d vsync=%d stats=%d",
-         XPOB_VERSION, XPOB_BUILD,
+    logf("XP Optimus Bypass %s (build %s) loaded in X-Plane.exe | mode=%s path=%s probe=%d vsync=%d stats=%d "
+         "measure_driver=%d", XPOB_VERSION, XPOB_BUILD,
          g_cfg.mode == MODE_OFF ? "off" : g_cfg.mode == MODE_ON ? "on" : "auto", prefNames[g_cfg.path],
-         g_cfg.probe ? 1 : 0, g_cfg.vsync ? 1 : 0, g_cfg.stats ? 1 : 0);
+         g_cfg.probe ? 1 : 0, g_cfg.vsync ? 1 : 0, g_cfg.stats ? 1 : 0, g_cfg.measure ? 1 : 0);
     if (g_cfg.forceBlit || g_cfg.forceCpuCopy || g_cfg.noExtraQueue || g_cfg.failIntelAfter || g_cfg.bypassAfterNative)
         logf("[diag] TEST SWITCHES: test_force_blit=%d test_force_cpu_copy=%d test_no_extra_queue=%d "
              "test_fail_intel_after=%d test_bypass_after_native=%d", g_cfg.forceBlit, g_cfg.forceCpuCopy,
@@ -3012,6 +3012,13 @@ static void reportWindow(VSwap* s) {
 // Once per presented frame on X-Plane's thread: move this frame's driver times into the 300-frame window.
 static void mFrame() {
     if (!g_cfg.measure) return;
+    if (!g_mDev) {  // X-Plane took no device function through vkGetDeviceProcAddr: nothing is timed
+        static int n = 0;
+        if (++n == 300)
+            logf("[diag] measure_driver=1, but no X-Plane Vulkan call is timed (X-Plane did not get its device "
+                 "functions through vkGetDeviceProcAddr)");
+        return;
+    }
     static uint64_t tsc0 = 0;
     static double ms0 = 0, otherMs = 0;
     static uint64_t otherCalls = 0;

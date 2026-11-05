@@ -759,6 +759,21 @@ static inline void mAdd(int c, uint64_t dt) {
         g_mOtherN.fetch_add(1, std::memory_order_relaxed);
     }
 }
+// X-Plane waits for the GPU by polling vkGetFenceStatus in a loop. From the first "not ready" until a poll says
+// "ready" counts as waiting for the GPU (including X-Plane's own loop between the polls). Render thread only.
+static uint64_t g_mSpin = 0, g_mSpinStart = 0, g_mPollT = 0;  // g_mPollT: time inside the polls themselves
+static uint32_t g_mPolls = 0;
+static inline void mPoll(bool ready, uint64_t t0, uint64_t t1) {
+    if (GetCurrentThreadId() != g_xpThread.load(std::memory_order_relaxed)) return;
+    ++g_mPolls;
+    g_mPollT += t1 - t0;
+    if (!ready) {
+        if (!g_mSpinStart) g_mSpinStart = t0;
+    } else if (g_mSpinStart) {
+        g_mSpin += t1 - g_mSpinStart;
+        g_mSpinStart = 0;
+    }
+}
 struct MeasureHook {
     const char* name;
     PFN_vkVoidFunction fn;
@@ -3000,7 +3015,8 @@ static void mFrame() {
     static uint64_t tsc0 = 0;
     static double ms0 = 0, otherMs = 0;
     static uint64_t otherCalls = 0;
-    static std::vector<float> tot, calls, draws, cat[M_N];
+    static std::vector<float> tot, calls, draws, cat[M_N], spin, polls, pollT, frameMs;
+    static double lastMs = 0;
     static int frames = 0;
     uint64_t tsc = __rdtsc();
     double ms = nowMs();
@@ -3008,6 +3024,11 @@ static void mFrame() {
     double tpm = ms - ms0 > 200.0 ? double(tsc - tsc0) / (ms - ms0) : 0.0;  // time stamp ticks per ms
     MAcc a = g_mMain;
     g_mMain = MAcc{};
+    if (g_mSpinStart) { g_mSpin += tsc - g_mSpinStart; g_mSpinStart = tsc; }  // a wait still running: split it here
+    uint64_t sp = g_mSpin, pt = g_mPollT;
+    uint32_t np = g_mPolls;
+    g_mSpin = g_mPollT = 0;
+    g_mPolls = 0;
     uint64_t ot = g_mOtherT.exchange(0);
     uint32_t on = g_mOtherN.exchange(0);
     if (tpm <= 0) return;
@@ -3020,6 +3041,11 @@ static void mFrame() {
         n += a.n[c];
     }
     tot.push_back((float)sum);
+    spin.push_back((float)(sp / tpm));
+    polls.push_back((float)np);
+    pollT.push_back((float)(pt / tpm));
+    if (lastMs > 0) frameMs.push_back((float)(ms - lastMs));
+    lastMs = ms;
     calls.push_back((float)n);
     draws.push_back((float)a.n[M_DRAW]);
     otherMs += ot / tpm;
@@ -3054,7 +3080,13 @@ static void mFrame() {
              (double)otherCalls / frames);
     line += b;
     logf("%s", line.c_str());
-    tot.clear(); calls.clear(); draws.clear();
+    // frame = X-Plane's own CPU work + time in the driver + time polling for the GPU
+    // (the polls' own time is inside both the polling span and the "wait" category: counted once, in the span)
+    double fm = mean(frameMs), sm = mean(spin), wm = mean(cat[M_WAIT]) - mean(pollT), dm = mean(tot) - mean(pollT);
+    logf("[drv] frame %.2f ms = waiting for the GPU %.2f ms (polling %.2f, %.0f polls; other waits %.2f) + other "
+         "driver calls %.2f ms + X-Plane CPU %.2f ms | polling p50 %.2f p95 %.2f ms", fm, sm + wm, sm, mean(polls), wm,
+         dm - wm, std::max(0.0, fm - sm - dm), pct(spin, 0.5), pct(spin, 0.95));
+    tot.clear(); calls.clear(); draws.clear(); spin.clear(); polls.clear(); pollT.clear(); frameMs.clear();
     for (auto& v : cat) v.clear();
     frames = 0;
     otherMs = 0;

@@ -47,7 +47,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.3.2"
+#define XPOB_VERSION "0.9.3.1"
 #ifndef XPOB_BUILD
 #define XPOB_BUILD "dev"
 #endif
@@ -1024,11 +1024,12 @@ static IntelCtx* intelCreate(HWND hwnd) {
     return c;
 }
 
+static bool intelIdleDevice(IntelCtx* c);
 static void intelDestroy(IntelCtx* c) {
     if (!c) return;
     if (g_intelHung) return;  // a hung driver could block here; the process ends soon anyway
     if (c->dev) {
-        c->vkDeviceWaitIdle(c->dev);
+        if (!intelIdleDevice(c)) return;  // no answer within 5 s: leak the device rather than block
         if (c->pool) c->vkDestroyCommandPool(c->dev, c->pool, nullptr);
         c->vkDestroyDevice(c->dev, nullptr);
     }
@@ -1561,27 +1562,50 @@ static VkResult nvAcquire(DevData* d, VkSwapchainKHR sc, VkSemaphore sem, uint32
     }
     return VK_TIMEOUT;
 }
+// vkQueueWaitIdle has no time limit: submit a fence after all earlier work on the queue and wait for it with the
+// nvFenceWait limit. Same thread rules as vkQueueWaitIdle (the caller owns the queue). False: GPU stuck.
+static bool nvQueueIdle(DevData* d, VkQueue q, const char* what) {
+    if (g_nvHung) return false;
+    VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    VkFence f = VK_NULL_HANDLE;
+    if (d->vkCreateFence(d->device, &fci, nullptr, &f) != VK_SUCCESS) return false;
+    VkResult r = d->vkQueueSubmit(q, 0, nullptr, f);
+    bool ok = r == VK_SUCCESS && nvFenceWait(d, f, what);
+    if (r != VK_SUCCESS) logf("GeForce: idle submit failed (%d)", (int)r);
+    if (ok || r != VK_SUCCESS) d->vkDestroyFence(d->device, f, nullptr);  // else still pending: leak it
+    return ok;
+}
 
 // Wait for an Intel fence, but never forever: an old or broken Intel driver must not freeze X-Plane. After 5 s
 // the Intel device counts as hung; the layer then never waits on it again and uses the native path.
-static bool intelFenceWait(VSwap* s, VkFence f) {
-    IntelCtx* c = s->ic;
+// (10 x 0.5 s, counted, so sleep / resume does not count as waiting)
+static bool intelFenceWaitC(IntelCtx* c, VkFence f, const char* what) {
     if (g_intelHung) return false;
-    double t0 = nowMs();
-    for (;;) {
+    for (int step = 0;; ++step) {
         VkResult r = c->vkWaitForFences(c->dev, 1, &f, VK_TRUE, 500ull * 1000 * 1000);
         if (r == VK_SUCCESS) return true;
-        if (r != VK_TIMEOUT || nowMs() - t0 > 5000.0) {
+        if (r != VK_TIMEOUT || step + 1 >= 10) {
             if (!g_intelHung.exchange(true))
-                logf("[hang] Intel GPU did not finish a copy (%s after %.1f s) -> not waiting on Intel any more",
-                     r == VK_TIMEOUT ? "timeout" : "error", (nowMs() - t0) / 1000.0);
+                logf("[hang] Intel GPU did not finish %s (%s after about %.1f s) -> not waiting on Intel any more", what,
+                     r == VK_TIMEOUT ? "timeout" : "error", (step + 1) * 0.5);
             return false;
         }
     }
 }
+static bool intelFenceWait(VSwap* s, VkFence f) { return intelFenceWaitC(s->ic, f, "a copy"); }
 
-static void intelIdleDevice(IntelCtx* c) {
-    if (!g_intelHung) c->vkDeviceWaitIdle(c->dev);
+// vkDeviceWaitIdle has no time limit. The Intel device has one queue, so "idle" = a fence submitted after all
+// earlier work has signaled; that fence is waited on with the 5 s limit. Returns false if the Intel GPU is hung.
+static bool intelIdleDevice(IntelCtx* c) {
+    if (!c || g_intelHung) return false;
+    VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    VkFence f = VK_NULL_HANDLE;
+    if (c->vkCreateFence(c->dev, &fci, nullptr, &f) != VK_SUCCESS) return false;
+    VkResult r = c->vkQueueSubmit(c->q, 0, nullptr, f);
+    bool ok = r == VK_SUCCESS && intelFenceWaitC(c, f, "its earlier work");
+    if (r != VK_SUCCESS) logf("Intel: idle submit failed (%d)", (int)r);
+    if (ok || r != VK_SUCCESS) c->vkDestroyFence(c->dev, f, nullptr);  // else still pending: leak it
+    return ok;
 }
 
 static void waitIntelIdle(VSwap* s) {
@@ -1727,11 +1751,11 @@ static void destroyBypass(VSwap* s) {
     if (s->ic && !g_intelHung) {  // hung Intel device: leak its objects rather than block X-Plane
         IntelCtx* c = s->ic;
         waitIntelIdle(s);
-        if (s->iswap && !g_intelHung) {
-            intelIdleDevice(c);
+        if (s->iswap && intelIdleDevice(c)) {
             c->vkDestroySwapchainKHR(c->dev, s->iswap, nullptr);
             s->iswap = VK_NULL_HANDLE;
         }
+        if (!g_intelHung) {  // the idle wait above may have found the Intel GPU hung
         destroyIntelStage(s);
         for (int k = 0; k < VSwap::R; ++k) {
             if (s->iCb[k]) c->vkFreeCommandBuffers(c->dev, c->pool, 1, &s->iCb[k]);
@@ -1744,6 +1768,7 @@ static void destroyBypass(VSwap* s) {
         if (s->iQ) c->vkDestroyQueryPool(c->dev, s->iQ, nullptr);
         if (s->trialIBuf) c->vkDestroyBuffer(c->dev, s->trialIBuf, nullptr);
         if (s->trialIMem) c->vkFreeMemory(c->dev, s->trialIMem, nullptr);
+        }
     }
     if (s->trialNvBuf) d->vkDestroyBuffer(dev, s->trialNvBuf, nullptr);
     if (s->trialNvMem) d->vkFreeMemory(dev, s->trialNvMem, nullptr);
@@ -2007,9 +2032,10 @@ static void destroyNativeSwapchain(VSwap* s) {
             d->vkResetFences(d->device, 1, &s->nFence[k]);
             s->nFenceUsed[k] = false;
         }
-    if (g_nvHung) return;  // vkQueueWaitIdle has no time limit: never call it on a stuck GPU
+    if (g_nvHung) return;
     if (s->nswap) {
-        if (s->nQueue) d->vkQueueWaitIdle(s->nQueue);  // presents of the old images must be finished
+        // presents of the old images must be finished; time-limited instead of vkQueueWaitIdle
+        if (s->nQueue && !nvQueueIdle(d, s->nQueue, "native presents")) return;  // stuck: leave it allocated
         d->vkDestroySwapchainKHR(d->device, s->nswap, nullptr);
         s->nswap = VK_NULL_HANDLE;
     }

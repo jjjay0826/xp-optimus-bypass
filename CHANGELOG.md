@@ -1,23 +1,20 @@
 # Changelog
 
-## 0.9.3.2 — testing
-
-- **GeForce fence waits have a total limit:** after 10 s without an answer (Windows normally resets a stuck GPU
-  after about 2 s), the NVIDIA GPU counts as lost. The layer stops waiting on it, leaves memory the GPU might still
-  write allocated instead of freeing it, and reports `VK_ERROR_DEVICE_LOST` to X-Plane instead of freezing.
-- **Native acquire is limited to 2 s:** the frame is skipped and the layer's NVIDIA swapchain is recreated; after 3
-  timeouts in a row X-Plane gets a real NVIDIA swapchain.
-- **Worker flush is logged:** it still waits for queued work (that work uses resources the caller frees next), but
-  every wait inside that work is now time-limited, and a flush over 3 s is logged as `[hang]`.
-- The new limits count wait steps rather than reading the clock, so sleep / resume does not count as waiting.
-
-## 0.9.3.1 — 2026-11-04
+## 0.9.3.1 — 2026-11-04 (updated 2026-11-05)
 
 - **DXGI Present no longer has to block:** the Intel swapchain uses a frame latency waitable object; the worker waits
   for a free back buffer for at most 2 s, then treats the Intel side as failed and switches to native.
-- **NVIDIA waits are reported:** GeForce fence waits and the native acquire wait in 1 s steps. NVIDIA work cannot be
-  abandoned (the GPU may still write the memory), so they keep waiting, but a wait over 3 s is logged as `[hang]`
-  and a lost device returns instead of hanging. No `UINT64_MAX` waits are left in the layer.
+- **Every wait in the layer has a total limit:**
+  - GeForce fence: 10 s (Windows normally resets a stuck GPU after about 2 s). Then the NVIDIA GPU counts as lost:
+    the layer stops waiting on it, leaves memory the GPU might still write allocated instead of freeing it, and
+    reports `VK_ERROR_DEVICE_LOST` to X-Plane instead of freezing.
+  - Native acquire: 2 s. The frame is skipped and the layer's NVIDIA swapchain is recreated; after 3 timeouts in a
+    row X-Plane gets a real NVIDIA swapchain.
+  - `vkQueueWaitIdle` / `vkDeviceWaitIdle` in the layer are replaced by a fence with the same limits (NVIDIA 10 s,
+    Intel 5 s); a hung device's objects are leaked rather than blocking.
+  - The worker flush still waits for queued work (it uses resources the caller frees next), but every wait inside
+    that work is limited; a flush over 3 s is logged as `[hang]`.
+  - The limits count wait steps rather than reading the clock, so sleep / resume does not count as waiting.
 
 ## 0.9.3 — 2026-11-04
 

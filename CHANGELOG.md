@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.3.3 — testing
+## 0.9.3.2 — 2026-11-06 (updated 2026-11-07)
 
 - **A stuck worker no longer freezes X-Plane in vkAcquireNextImageKHR:** the watchdog counts how long the worker stays
   in one stage; after 30 checks in a row (every wait the layer makes is limited to 10 s, so only a driver call that
@@ -11,9 +11,6 @@
 - **Regression tests for the two failure paths:** `test_hang_worker_after=N` (the worker hangs forever, like a driver
   call that never returns) and `test_fail_acquire_submit_every=N` (the acquire submit fails; the image must come back).
   Procedure in installer/docs/TESTING.md, rows 14 and 15.
-
-## 0.9.3.2 — 2026-11-06 (updated the same day)
-
 - **Worker flush has a total limit:** if the worker's work does not finish within 30 s (only possible if a driver
   call never returns; every wait the layer makes is limited), the worker counts as lost. Nothing it may still use is
   freed, its thread is not joined, and X-Plane gets `VK_ERROR_DEVICE_LOST` instead of freezing.

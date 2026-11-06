@@ -39,7 +39,7 @@ X-Plane 12.4.3. / 作者筆電實測。
 | No leftover console windows; Steam direct start; anonymous report sent | pass |
 | 0.9.3.1: timed DXGI back-buffer wait, bounded NVIDIA waits | pass: ~41-44 FPS, no timeouts or `[hang]` outside loading |
 | 0.9.3.2: acquire timeout, multi-swapchain guard, real refresh rate, measure split, anonymous ID, launcher wait | pass: ~40-43 FPS at KSEA; Alt-Tab / minimize / resize without fallback or `[hang]` outside loading; report sent with `install_id`, summary counts `installs` |
-| 0.9.3.2 (update): worker-hang, acquire-submit-failure and Intel-failure regression tests (rows 7, 14, 15; row 7 again because of the new watchdog) | not run yet |
+| 0.9.3.2 (update): worker-hang, acquire-submit-failure and Intel-failure regression tests (rows 7, 14, 15; row 7 again because of the new watchdog); log window Report button | pass (2026-11-07): row 7 kept flying on native, row 14 ended with a lost device instead of freezing, row 15 kept running with images given back; Report window opens |
 | Not tested: `test_force_blit`, Global mode, external / multiple monitors, HDR, VR, other laptops | - |
 
 # Runtime acceptance / 實機驗收

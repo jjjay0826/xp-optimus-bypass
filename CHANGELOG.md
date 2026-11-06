@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.3.3 — testing
+
+- **Worker flush has a total limit:** if the worker's work does not finish within 30 s (only possible if a driver
+  call never returns; every wait the layer makes is limited), the worker counts as lost. Nothing it may still use is
+  freed, its thread is not joined, and X-Plane gets `VK_ERROR_DEVICE_LOST` instead of freezing.
+- **vAcquire error path:** if the submit that signals X-Plane's semaphore / fence fails, the image is given back
+  instead of staying taken for the rest of the session.
+- README lists the known limits of the virtual swapchain (several swapchains in one present, device groups,
+  `VK_GOOGLE_display_timing`, NVIDIA low-latency calls).
+
 ## 0.9.3.2 — 2026-11-06
 
 - **vkAcquireNextImage(2)KHR honour X-Plane's timeout:** 0 only checks (`VK_NOT_READY`), a finite timeout returns

@@ -10,15 +10,6 @@ Download **[XP_Optimus_Bypass_v0.9.3.2.zip](https://github.com/jjjay0826/xp-opti
 
 [繁體中文](README.zh-TW.md) · [Release history](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [Installer changelog](installer/CHANGELOG.md) · [Quick guide / 英中操作說明](installer/README.txt) · [0.9.3 plan](docs/PLAN-0.9.3.md)
 
-## Verifying the download
-
-The DLL is not code-signed. To check that a download is the published build:
-
-- compare the ZIP's SHA-256 (`Get-FileHash XP_Optimus_Bypass_v*.zip` in PowerShell) with the one in the release notes;
-- or verify the build provenance: `gh attestation verify XP_Optimus_Bypass_v<version>.zip -R jjjay0826/xp-optimus-bypass`;
-- `SHA256SUMS.txt` inside the ZIP lists every file, and the first line of `xp_optimus_bypass.log` shows the DLL's
-  version and build id.
-
 ## What's new in 0.9.3.2
 
 - `vkAcquireNextImage(2)KHR` honour X-Plane's timeout; a present with several swapchains never hands the layer's
@@ -207,6 +198,12 @@ GitHub issue.
 - Global mode loads an unsigned DLL into other Vulkan applications and may conflict with anti-cheat software. Use X-Plane-only mode for those environments and restart affected applications after changing modes.
 - Vulkan overlays or capture tools may cause compatibility problems. Disable them when investigating a crash.
 - These tests do not establish compatibility with VR, every multi-monitor arrangement, long add-on-heavy sessions or all GPU/driver combinations.
+- Known limits of the layer's virtual swapchain: a present with several swapchains (X-Plane does not do this) makes
+  X-Plane fall back to real NVIDIA swapchains for the session, and present extension structs are dropped in that
+  case; Vulkan device groups (`deviceMask`) are not supported; `VK_GOOGLE_display_timing` reports the real refresh
+  rate but no past presentation timings; the NVIDIA low-latency (Reflex) calls reach the driver only for real swapchains; for the layer's they return at once.
+- If a driver call inside the layer's worker thread never returns, the layer gives up after 30 s: X-Plane gets a lost
+  device (error) instead of freezing, and the layer's objects are left allocated until X-Plane exits.
 - Before reporting an X-Plane issue to Laminar Research, check whether it also occurs with this layer uninstalled.
 
 Report issues through [GitHub Issues](https://github.com/jjjay0826/xp-optimus-bypass/issues). Include the release version, laptop model, CPU/GPU, Windows and driver versions, activation mode, relevant logs and steps to reproduce. For performance comparisons, include graphics settings and both benchmark logs.
@@ -220,7 +217,9 @@ D3D12 or X-Plane.** Those tests are done by hand on the author's laptop before a
 
 ## Verify the download
 
-The DLL is not digitally signed. From the **extracted package's root folder**, run:
+The DLL is not digitally signed. Compare the ZIP's SHA-256 (`Get-FileHash XP_Optimus_Bypass_v*.zip` in PowerShell)
+with the one in the release notes; the first line of `xp_optimus_bypass.log` shows the DLL's version and build id.
+To check the DLL itself, run from the **extracted package's root folder**:
 
 ```bat
 certutil -hashfile app\xp_optimus_bypass.dll SHA256

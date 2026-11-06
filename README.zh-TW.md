@@ -12,14 +12,6 @@
 
 [所有版本](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [安裝程式變更紀錄](installer/CHANGELOG.md) · [快速說明（英中）](installer/README.txt) · [0.9.3 規劃](docs/PLAN-0.9.3.md)
 
-## 驗證下載檔
-
-DLL 沒有數位簽章。要確認下載的是正式發布的版本：
-
-- 比對 ZIP 的 SHA-256（PowerShell：`Get-FileHash XP_Optimus_Bypass_v*.zip`）和 release 說明裡的是否相同；
-- 或驗證建置來源：`gh attestation verify XP_Optimus_Bypass_v<版本>.zip -R jjjay0826/xp-optimus-bypass`；
-- ZIP 裡的 `SHA256SUMS.txt` 列出每個檔案的雜湊；`xp_optimus_bypass.log` 第一行會顯示 DLL 版本和 build id。
-
 ## 0.9.3.2 新功能
 
 - `vkAcquireNextImage(2)KHR` 照 X-Plane 給的等待時間處理；一次送出多個 swapchain 時不會把 layer 的 handle 交給驅動；回報真實的螢幕更新率。
@@ -163,6 +155,8 @@ Intel 端出錯時，layer 會在內部改用 NVIDIA 原生輸出直到這次結
 - 全域模式會讓沒有數位簽章的 DLL 載入其他 Vulkan 程式，可能和反作弊軟體衝突；這種環境請用「僅 X-Plane」模式，切換模式後重開相關程式。
 - Vulkan overlay 或錄影工具可能造成相容性問題，查閃退時請先關掉。
 - 目前的測試不代表能相容 VR、所有多螢幕配置、裝很多外掛的長時間飛行，或所有顯示卡和驅動組合。
+- 虛擬 swapchain 的已知限制：一次送出多個 swapchain（X-Plane 不會這樣做）時，這次執行會改用一般的 NVIDIA swapchain，該次送出的擴充資訊也不會保留；不支援 Vulkan device group（`deviceMask`）；`VK_GOOGLE_display_timing` 會回報真實更新率，但沒有過去的呈現時間；NVIDIA 低延遲（Reflex）相關呼叫只對真實 swapchain 交給驅動，對 layer 的 swapchain 會直接返回。
+- 如果 layer 背景執行緒裡的某個驅動呼叫一直不返回，layer 會在 30 秒後放棄：X-Plane 會收到 device lost（報錯）而不是一直卡住，layer 的物件會留著直到 X-Plane 結束。
 - 回報 X-Plane 問題給 Laminar Research 前，先確認解除安裝這個 layer 後是否還會發生。
 
 請到 [GitHub Issues](https://github.com/jjjay0826/xp-optimus-bypass/issues) 回報，附上版本、筆電型號、CPU／GPU、Windows 和驅動版本、啟用模式、相關 log 和重現步驟。效能比較請附上畫質設定和兩份測試 log。
@@ -173,7 +167,7 @@ GitHub Actions 會可重現地編譯和打包每個版本、在 Windows 上檢�
 
 ## 驗證下載
 
-DLL 沒有數位簽章。在**解壓縮後的資料夾第一層**執行：
+DLL 沒有數位簽章。可以比對 ZIP 的 SHA-256（PowerShell：`Get-FileHash XP_Optimus_Bypass_v*.zip`）和 release 說明裡的是否相同；`xp_optimus_bypass.log` 第一行會顯示 DLL 版本和 build id。要檢查 DLL 本身，在**解壓縮後的資料夾第一層**執行：
 
 ```bat
 certutil -hashfile app\xp_optimus_bypass.dll SHA256

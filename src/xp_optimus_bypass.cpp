@@ -47,7 +47,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.3.2"
+#define XPOB_VERSION "0.9.3.3"
 #ifndef XPOB_BUILD
 #define XPOB_BUILD "dev"
 #endif
@@ -87,7 +87,8 @@ static LARGE_INTEGER g_freq;
 static thread_local bool g_internalCreate = false;
 static std::atomic<bool> g_intelBroken{false};    // Intel side failed: native path for the rest of the session
 static std::atomic<bool> g_intelHung{false};      // an Intel wait timed out: never wait on the Intel device again
-static std::atomic<bool> g_nvHung{false};         // a GeForce fence gave no answer for 10 s: device treated as lost
+static std::atomic<bool> g_nvHung{false};
+static std::atomic<bool> g_workerStuck{false};    // a flush gave no answer in 30 s: worker treated as lost         // a GeForce fence gave no answer for 10 s: device treated as lost
 // NVIDIA's native output puts the window into DXGI flip mode. Older Intel Vulkan drivers present the old way, which
 // Windows does not show on a window that has used flip mode: after native output the bypass would keep running
 // but the picture would stay frozen. So once native output was shown, the bypass does not come back (by default).
@@ -511,16 +512,31 @@ public:
     // Wait until all work pushed so far has finished. This cannot return early: callers free resources the queued
     // work uses. It is still bounded, because every wait inside the work is time-limited (GeForce fence 2 x 10 s,
     // Intel fence 5 s, DXGI 2 s; after a GeForce or Intel hang the work returns at once). A long wait is logged.
-    void flush() {
+    // Returns false if the work did not finish within kFlushSteps x 1 s (counted, so sleep / resume does not count).
+    // That can only happen if a driver call inside the work itself never returns (every wait the layer makes is
+    // limited, a job takes at most about 27 s). Then the worker counts as lost (g_workerStuck): callers do not free
+    // anything the work may use (they leak it) and report VK_ERROR_DEVICE_LOST instead of blocking X-Plane.
+    static constexpr int kFlushSteps = 30;
+    bool flush() {
+        if (g_workerStuck) return false;
         std::unique_lock<std::mutex> lk(m_);
         uint64_t target = pushed_;
         int secs = 0;
         while (!done_.wait_for(lk, std::chrono::seconds(1), [&] { return finished_ >= target; })) {
             if (++secs == 3) logf("[hang] waiting for the worker thread (%llu job(s) left)",
                                   (unsigned long long)(target - finished_));
+            if (secs >= kFlushSteps) {
+                if (!g_workerStuck.exchange(true))
+                    logf("[hang] worker thread gave no answer for %d s (a driver call did not return) -> treated as "
+                         "lost: its resources are left allocated and X-Plane gets a lost device", kFlushSteps);
+                return false;
+            }
         }
         if (secs >= 3) logf("[hang] worker thread finished after about %d s", secs + 1);
+        return true;
     }
+    // The thread is stuck inside a driver call: never join it (that would block forever); the object is leaked.
+    void abandon() { if (th_.joinable()) th_.detach(); }
 
 private:
     void run() {
@@ -2566,7 +2582,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
 static VkResult vAcquire(VSwap* s, uint64_t timeoutNs, VkSemaphore sem, VkFence fence, uint32_t* pIndex) {
     DevData* d = s->d;
     if (g_virtualBroken) return VK_ERROR_OUT_OF_DATE_KHR;  // X-Plane recreates -> real NVIDIA swapchain
-    if (g_nvHung) return VK_ERROR_DEVICE_LOST;
+    if (g_nvHung || g_workerStuck) return VK_ERROR_DEVICE_LOST;
     static bool toldAcq = false;
     if (!toldAcq) {  // what X-Plane asks for when it takes an image (does it wait on our fence before recording?)
         toldAcq = true;
@@ -2615,9 +2631,20 @@ static VkResult vAcquire(VSwap* s, uint64_t timeoutNs, VkSemaphore sem, VkFence 
         si.pWaitDstStageMask = &stage;
         si.signalSemaphoreCount = sem ? 1 : 0;
         si.pSignalSemaphores = &sem;
-        std::lock_guard<std::mutex> lk(d->copyQLock);
-        VkResult r = d->vkQueueSubmit(d->copyQueue, 1, &si, fence);
-        if (r < 0) return r;
+        VkResult r;
+        {
+            std::lock_guard<std::mutex> lk(d->copyQLock);
+            r = d->vkQueueSubmit(d->copyQueue, 1, &si, fence);
+        }
+        if (r < 0) {  // nothing was submitted: give the image back so it is not lost for the rest of the session
+            {
+                std::lock_guard<std::mutex> lk(s->m);
+                s->v[i].state = 0;
+                s->v[i].copyPending = needWait;
+            }
+            s->cv.notify_all();
+            return r;
+        }
     }
     *pIndex = i;
     std::lock_guard<std::mutex> lk(s->perf.m);
@@ -2762,7 +2789,7 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
 // Switch the output inside the layer. X-Plane's thread, between frames.
 static bool switchPath(VSwap* s, int to, const char* why) {
     DevData* d = s->d;
-    d->worker->flush();
+    if (!d->worker->flush()) return false;
     if (to == PATH_BYPASS) {
         if (!s->bypassTried && !buildBypass(s)) {
             logf("bypass unavailable: %s", s->bypassWhyNot.c_str());
@@ -3159,6 +3186,7 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
         logf("[diag] X-Plane present: %u wait semaphore(s)", pi->waitSemaphoreCount);
     }
     DevData* d = s->d;
+    if (g_nvHung || g_workerStuck) return VK_ERROR_DEVICE_LOST;  // nothing more is queued on a lost worker / GPU
     double t0 = nowMs();
     startWatchdog();
     g_xpThread = GetCurrentThreadId();
@@ -3665,8 +3693,13 @@ static VKAPI_ATTR void VKAPI_CALL XP_DestroyDevice(VkDevice device, const VkAllo
         if (it != g_dev.end()) { d = it->second; g_dev.erase(it); }
     }
     if (!d) return;
+    if (d->worker && !d->worker->flush()) {  // stuck worker: free nothing it may use, never join it
+        d->worker->abandon();
+        d->worker = nullptr;
+        logf("device destroyed with the worker thread stuck: the layer's objects are left allocated");
+        return;  // also skip vkDestroyDevice: the stuck call is still inside this device; the process is ending
+    }
     if (d->worker) {
-        d->worker->flush();
         std::vector<VSwap*> left;  // swapchains X-Plane did not destroy itself
         {
             std::lock_guard<std::mutex> lk(g_vsLock);
@@ -3729,7 +3762,7 @@ static bool signalsPending2(DevData* d, uint32_t n, const VkSubmitInfo2* s) {
 static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit(VkQueue queue, uint32_t n, const VkSubmitInfo* s, VkFence f) {
     DevData* d = devOf(key(queue));
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
-    if (d->worker && signalsPending(d, n, s)) d->worker->flush();
+    if (d->worker && signalsPending(d, n, s) && !d->worker->flush()) return VK_ERROR_DEVICE_LOST;
     if (!g_cfg.measure) return d->vkQueueSubmit(queue, n, s, f);
     uint64_t t0 = __rdtsc();
     VkResult r = d->vkQueueSubmit(queue, n, s, f);
@@ -3739,7 +3772,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit(VkQueue queue, uint32_t n, 
 static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit2(VkQueue queue, uint32_t n, const VkSubmitInfo2* s, VkFence f) {
     DevData* d = devOf(key(queue));
     if (!d || !d->vkQueueSubmit2) return VK_ERROR_INITIALIZATION_FAILED;
-    if (d->worker && signalsPending2(d, n, s)) d->worker->flush();
+    if (d->worker && signalsPending2(d, n, s) && !d->worker->flush()) return VK_ERROR_DEVICE_LOST;
     if (!g_cfg.measure) return d->vkQueueSubmit2(queue, n, s, f);
     uint64_t t0 = __rdtsc();
     VkResult r = d->vkQueueSubmit2(queue, n, s, f);
@@ -3749,7 +3782,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit2(VkQueue queue, uint32_t n,
 static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit2KHR(VkQueue queue, uint32_t n, const VkSubmitInfo2* s, VkFence f) {
     DevData* d = devOf(key(queue));
     if (!d || !d->vkQueueSubmit2KHR) return VK_ERROR_INITIALIZATION_FAILED;
-    if (d->worker && signalsPending2(d, n, s)) d->worker->flush();
+    if (d->worker && signalsPending2(d, n, s) && !d->worker->flush()) return VK_ERROR_DEVICE_LOST;
     if (!g_cfg.measure) return d->vkQueueSubmit2KHR(queue, n, s, f);
     uint64_t t0 = __rdtsc();
     VkResult r = d->vkQueueSubmit2KHR(queue, n, s, f);
@@ -3759,13 +3792,13 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueSubmit2KHR(VkQueue queue, uint32_t
 static VKAPI_ATTR VkResult VKAPI_CALL XP_QueueWaitIdle(VkQueue queue) {
     DevData* d = devOf(key(queue));
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
-    if (d->worker) d->worker->flush();
+    if (d->worker && !d->worker->flush()) return VK_ERROR_DEVICE_LOST;
     return d->vkQueueWaitIdle(queue);
 }
 static VKAPI_ATTR VkResult VKAPI_CALL XP_DeviceWaitIdle(VkDevice device) {
     DevData* d = devOf(key(device));
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
-    if (d->worker) d->worker->flush();
+    if (d->worker && !d->worker->flush()) return VK_ERROR_DEVICE_LOST;
     return d->vkDeviceWaitIdle(device);
 }
 
@@ -3817,7 +3850,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_CreateSwapchainKHR(VkDevice device, con
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
     if (!d->active || d->internal) return d->vkCreateSwapchainKHR(device, ci, pAllocator, pSwapchain);
     g_xpThread = GetCurrentThreadId();
-    d->worker->flush();
+    if (!d->worker->flush()) return VK_ERROR_DEVICE_LOST;
 
     VSwap* oldVs = vsOf(ci->oldSwapchain);
     HWND hwnd = nullptr;
@@ -3898,8 +3931,7 @@ static VKAPI_ATTR void VKAPI_CALL XP_DestroySwapchainKHR(VkDevice device, VkSwap
         if (it != g_vs.end()) { vs = it->second; g_vs.erase(it); }
     }
     if (vs) {
-        d->worker->flush();
-        destroyVSwap(vs);
+        if (d->worker->flush()) destroyVSwap(vs);  // stuck worker: leave the swapchain's objects allocated
         return;
     }
     d->vkDestroySwapchainKHR(device, swapchain, pAllocator);

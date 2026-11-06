@@ -1,4 +1,4 @@
-﻿XP Optimus Bypass | DLL 0.9.3.2 | Installer 0.9.3.2
+﻿XP Optimus Bypass | DLL 0.9.3.3 | Installer 0.9.3.2
 https://github.com/jjjay0826/xp-optimus-bypass
 
 ENGLISH

@@ -30,6 +30,11 @@ EXTRA = {
 }
 
 
+# Polling calls: (expression for "the GPU is done"). X-Plane polls vkGetFenceStatus in a loop while it waits for the
+# GPU; the time between polls is spent in X-Plane, so the per-call time alone misses that wait.
+POLL = {"vkGetFenceStatus": "r == VK_SUCCESS"}
+
+
 def category(name):
     if name in EXTRA:
         return EXTRA[name]
@@ -66,7 +71,10 @@ def main(path):
         decl = ", ".join(plist)
         call = "m_%s(%s)" % (name, ", ".join(args))
         out.append("static PFN_%s m_%s = nullptr;" % (name, name))
-        if ret == "void":
+        if name in POLL:  # a poll: also tracks how long X-Plane keeps polling until the GPU is done
+            body = ("uint64_t t0 = __rdtsc(); %s r = %s; uint64_t t1 = __rdtsc(); mAdd(M_%s, t1 - t0); "
+                    "mPoll(%s, t0, t1); return r;" % (ret, call, cat, POLL[name]))
+        elif ret == "void":
             body = "uint64_t t0 = __rdtsc(); %s; mAdd(M_%s, __rdtsc() - t0);" % (call, cat)
         else:
             body = "uint64_t t0 = __rdtsc(); %s r = %s; mAdd(M_%s, __rdtsc() - t0); return r;" % (ret, call, cat)

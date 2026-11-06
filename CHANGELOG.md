@@ -7,6 +7,9 @@
 - **A present with several swapchains** (one of them the layer's) no longer hands the layer's handle to the driver:
   the real swapchains are presented, the layer's image is released, and X-Plane is asked to use real NVIDIA
   swapchains from then on. X-Plane itself presents one swapchain; this only guards other cases.
+- `measure_driver=1` also splits X-Plane's frame into waiting for the GPU (its fence polling loop), driver calls and
+  its own CPU time (`[drv] frame ... =` lines); the first log line shows `measure_driver`. On the author's laptop
+  X-Plane waits for the GPU for almost the whole frame, so with the bypass the GTX 1650 is the limit.
 - `vkGetRefreshCycleDurationGOOGLE` reports the refresh rate of the screen X-Plane's window is on (was 60 Hz).
 - Installer 0.9.3.2: anonymous reports carry a random, resettable installation ID (see README); the installer
   removes the download mark only from its own files; BENCHMARK.md no longer names an old DLL version.

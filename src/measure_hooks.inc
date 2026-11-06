@@ -19,7 +19,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL w_vkBindImageMemory(VkDevice device, VkIma
 static PFN_vkResetFences m_vkResetFences = nullptr;
 static VKAPI_ATTR VkResult VKAPI_CALL w_vkResetFences(VkDevice device, uint32_t fenceCount, const VkFence* pFences) { uint64_t t0 = __rdtsc(); VkResult r = m_vkResetFences(device, fenceCount, pFences); mAdd(M_WAIT, __rdtsc() - t0); return r; }
 static PFN_vkGetFenceStatus m_vkGetFenceStatus = nullptr;
-static VKAPI_ATTR VkResult VKAPI_CALL w_vkGetFenceStatus(VkDevice device, VkFence fence) { uint64_t t0 = __rdtsc(); VkResult r = m_vkGetFenceStatus(device, fence); mAdd(M_WAIT, __rdtsc() - t0); return r; }
+static VKAPI_ATTR VkResult VKAPI_CALL w_vkGetFenceStatus(VkDevice device, VkFence fence) { uint64_t t0 = __rdtsc(); VkResult r = m_vkGetFenceStatus(device, fence); uint64_t t1 = __rdtsc(); mAdd(M_WAIT, t1 - t0); mPoll(r == VK_SUCCESS, t0, t1); return r; }
 static PFN_vkWaitForFences m_vkWaitForFences = nullptr;
 static VKAPI_ATTR VkResult VKAPI_CALL w_vkWaitForFences(VkDevice device, uint32_t fenceCount, const VkFence* pFences, VkBool32 waitAll, uint64_t timeout) { uint64_t t0 = __rdtsc(); VkResult r = m_vkWaitForFences(device, fenceCount, pFences, waitAll, timeout); mAdd(M_WAIT, __rdtsc() - t0); return r; }
 static PFN_vkGetQueryPoolResults m_vkGetQueryPoolResults = nullptr;

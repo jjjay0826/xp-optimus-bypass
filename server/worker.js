@@ -1,7 +1,9 @@
 // XP Optimus Bypass — anonymous compatibility report receiver (Cloudflare Worker + D1).
 //
-// Privacy: the Worker never stores the IP address, request headers, cookies or any identifier. It keeps only
-// the whitelisted JSON fields below and the day the report arrived. The IP is used only, in memory, by
+// Privacy: the Worker never stores the IP address, request headers or cookies. It keeps only the whitelisted JSON
+// fields below and the day the report arrived. install_id is a random number the installer makes on the user's PC
+// (32 hex digits, not derived from the hardware or the user, resettable); it only groups reports of one installation
+// and is never shown in the public summary. The IP is used only, in memory, by
 // Cloudflare's rate limiter (see wrangler.toml) and is not written anywhere by this code.
 //
 // POST /v1/report   body: report JSON from installer/app/report.ps1 (max 4 KB)
@@ -28,6 +30,7 @@ function clean(r) {
     : null;
   const list = (a, n, max) => (Array.isArray(a) ? a.slice(0, n).map((x) => STR(x, max)).filter((x) => x && !PATHLIKE.test(x)) : []);
   const out = {
+    install_id: typeof r.install_id === "string" && /^[0-9a-f]{32}$/.test(r.install_id) ? r.install_id : "",
     layer: STR(r.layer, 20), installer: STR(r.installer, 20), install_mode: STR(r.install_mode, 10),
     windows: STR(r.windows, 20), xplane: STR(r.xplane, 20),
     render_gpu: STR(r.render_gpu, 80), render_driver: STR(r.render_driver, 20),
@@ -68,6 +71,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/v1/summary") {
       const { results } = await env.DB.prepare(
         "SELECT render_gpu, intel_gpu, result, COUNT(*) AS reports, " +
+        "COUNT(DISTINCT NULLIF(json_extract(body, '$.install_id'), '')) AS installs, " +
         "AVG(json_extract(body, '$.fps.bypass.fps')) AS avg_bypass_fps, " +
         "AVG(json_extract(body, '$.fps.native.fps')) AS avg_native_fps, " +
         "AVG(json_extract(body, '$.fps.\"real-swapchain\".fps')) AS avg_real_fps " +

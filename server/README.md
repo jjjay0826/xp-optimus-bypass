@@ -4,7 +4,9 @@ Receives the anonymous compatibility reports that the installer's launcher sends
 (`installer/app/report.ps1`). Free Cloudflare plan is enough.
 
 **Privacy:** the Worker stores only the whitelisted report fields (see `worker.js`) and the day it arrived.
-It never stores IP addresses, request headers or identifiers. Workers Logs stay disabled (`wrangler.toml`).
+It never stores IP addresses or request headers. Since installer 0.9.3.2 a report carries `install_id`, a random,
+resettable number made on the user's PC (not derived from hardware); it groups reports of one installation and is not
+shown by `/v1/summary`, which only counts installations (`installs`). Workers Logs stay disabled (`wrangler.toml`).
 
 ## Deploy (once)
 

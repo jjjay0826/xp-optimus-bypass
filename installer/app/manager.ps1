@@ -208,7 +208,7 @@ $search.Add_Click({ try { Begin-Search } catch { Stop-Search; Show-Error $_.Exce
 $install.Add_Click({
     if ($script:Busy) { return }
     # Tell people up front about the default-on reports and the one-time path measurement (brief stutter).
-    $consent = if ($reports.Checked) { T '1. 匿名相容性回報預設開啟。X-Plane 關閉後會送出一份匿名報告（顯示卡型號、驅動版本、FPS、選用的輸出方式等），不含檔案路徑、使用者名稱或任何可識別身分的資訊。不想傳送的話，請取消勾選「傳送匿名相容性回報」，之後也能隨時關閉；按「查看會傳送什麼」可以預覽內容。' } else { T '1. 匿名相容性回報目前是關閉的，不會傳送任何資料。' }
+    $consent = if ($reports.Checked) { T '1. 匿名相容性回報預設開啟。X-Plane 關閉後會送出一份匿名報告（顯示卡型號、驅動版本、FPS、選用的輸出方式等），不含檔案路徑、使用者名稱或任何可識別身分的資訊。報告附一個隨機的匿名 ID，只用來把這台電腦的多份回報歸在一起，跟硬體和個人資料無關，可以隨時重設。不想傳送的話，請取消勾選「傳送匿名相容性回報」，之後也能隨時關閉；按「查看會傳送什麼」可以預覽內容和重設 ID。' } else { T '1. 匿名相容性回報目前是關閉的，不會傳送任何資料。' }
     $notice = (T '安裝前請注意：') + "`r`n`r`n" + $consent + "`r`n`r`n" + (T '2. 第一次在這台電腦上飛行時，進入飛行畫面約 1～2 分鐘後，layer 會自動比較兩種輸出方式，約需 1 分鐘。這段期間 FPS 會兩度短暫降到約一半，切換時畫面也會頓一下，這是正常的。比較完會記住結果，之後就不會再發生。') + "`r`n`r`n" + (T '要繼續安裝嗎？')
     if ([Windows.Forms.MessageBox]::Show($notice, 'XP Optimus Bypass', 'OKCancel', 'Information') -ne [Windows.Forms.DialogResult]::OK) { return }
     $script:Busy = $true; $install.Enabled = $false

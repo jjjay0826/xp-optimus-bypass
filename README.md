@@ -169,11 +169,14 @@ To find out on which laptops the layer works, the launcher can send one small an
 closes**. It is **on by default** and shown in the installer; switch it off at any time in the manager
 (*Send anonymous compatibility reports*). *See what is sent* shows the exact content.
 
-- **Sent:** layer and installer version, Windows build, X-Plane version, GPU models and driver versions, number of
+- **Sent:** a random anonymous installation ID (see below), layer and installer version, Windows build, X-Plane version, GPU models and driver versions, number of
   screens and whether X-Plane's screen is driven by the Intel GPU, the chosen path and why, failure reasons,
   median FPS and frame-time percentiles per path, names of Vulkan overlay layers, and whether test switches were used.
-- **Not sent:** file paths, user name, computer name, the log itself, hardware serial numbers or LUIDs, or any
-  identifier. Reports from the same PC are not linked to each other.
+- **Not sent:** file paths, user name, computer name, the log itself, hardware serial numbers or LUIDs.
+- **Anonymous ID (installer 0.9.3.2):** a random number made on your PC the first time a report is built
+  (`app\report_id.txt`). It is not derived from your hardware or from you; it only lets reports from the same
+  installation be grouped (for example before and after a driver update). *Reset anonymous ID* in the report window
+  replaces it; uninstalling removes it. It never appears in the public summary, which only counts installations.
 - The DLL never connects to the network; only the launcher does, once per session, and gives up on failure.
 - The server ([`server/`](server/)) stores only those fields and the day; it does not store IP addresses or request headers.
 - Aggregated results (per GPU combination) are public: <https://xpob-reports.jjjay0826.workers.dev/v1/summary>

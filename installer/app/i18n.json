@@ -59,7 +59,7 @@
   "解除安裝完成。": "Uninstalled. The reusable installer is still available.",
   "X-Plane 路徑失效，請在接下來的管理視窗重新選擇路徑並按「安裝 / 套用」。": "The X-Plane path is invalid. Select a new path in the manager and click Install / Apply.",
   "安裝前請注意：": "Before you install:",
-  "1. 匿名相容性回報預設開啟。X-Plane 關閉後會送出一份匿名報告（顯示卡型號、驅動版本、FPS、選用的輸出方式等），不含檔案路徑、使用者名稱或任何可識別身分的資訊。不想傳送的話，請取消勾選「傳送匿名相容性回報」，之後也能隨時關閉；按「查看會傳送什麼」可以預覽內容。": "1. Anonymous compatibility reports are ON by default. After X-Plane closes, one anonymous report is sent (GPU models, driver versions, FPS, the chosen output path, etc.). It contains no file paths, user name or anything that identifies you. To opt out, untick \"Send anonymous compatibility reports\" (you can also switch it off later); \"See what is sent\" shows the content.",
+  "1. 匿名相容性回報預設開啟。X-Plane 關閉後會送出一份匿名報告（顯示卡型號、驅動版本、FPS、選用的輸出方式等），不含檔案路徑、使用者名稱或任何可識別身分的資訊。報告附一個隨機的匿名 ID，只用來把這台電腦的多份回報歸在一起，跟硬體和個人資料無關，可以隨時重設。不想傳送的話，請取消勾選「傳送匿名相容性回報」，之後也能隨時關閉；按「查看會傳送什麼」可以預覽內容和重設 ID。": "1. Anonymous compatibility reports are ON by default. After X-Plane closes, one anonymous report is sent (GPU models, driver versions, FPS, the chosen output path, etc.). It contains no file paths, user name or anything that identifies you. It carries a random anonymous ID that only groups the reports from this PC; it is not derived from the hardware or from you, and you can reset it at any time. To opt out, untick \"Send anonymous compatibility reports\" (you can also switch it off later); \"See what is sent\" shows the content and can reset the ID.",
   "1. 匿名相容性回報目前是關閉的，不會傳送任何資料。": "1. Anonymous compatibility reports are currently OFF; nothing will be sent.",
   "2. 第一次在這台電腦上飛行時，進入飛行畫面約 1～2 分鐘後，layer 會自動比較兩種輸出方式，約需 1 分鐘。這段期間 FPS 會兩度短暫降到約一半，切換時畫面也會頓一下，這是正常的。比較完會記住結果，之後就不會再發生。": "2. The first time you fly on this PC, about 1-2 minutes after the flight starts the layer compares its two output paths for about a minute. During that time the frame rate drops to about half twice and the picture stutters briefly at each switch. This is normal; the result is remembered and it does not happen again.",
   "要繼續安裝嗎？": "Continue with the installation?",
@@ -89,5 +89,8 @@
   "還沒有這次執行的紀錄。用專用入口啟動 X-Plane 飛一下，關閉後再開啟這個視窗。": "No log from a session yet. Start X-Plane with the dedicated launcher, fly for a while, close it, then open this window again.",
   "自動回報只會送出下面這些欄位（不含路徑、使用者名稱、電腦名稱）。": "Automatic reports send only the fields below (no paths, user name or computer name).",
   "複製": "Copy",
-  "在 GitHub 回報": "Report on GitHub"
+  "在 GitHub 回報": "Report on GitHub",
+  "install_id 是安裝時隨機產生的匿名編號，跟硬體和個人資料無關，只用來把這台電腦的多份回報歸在一起。可以按「重設匿名 ID」換一個新的。": "install_id is a random anonymous number made on this PC, not derived from the hardware or from you. It only groups the reports from this PC. \"Reset anonymous ID\" replaces it with a new one.",
+  "重設匿名 ID": "Reset anonymous ID",
+  "已換成新的匿名 ID：": "New anonymous ID: "
 }

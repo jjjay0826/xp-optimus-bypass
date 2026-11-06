@@ -152,7 +152,13 @@ jobs:
           $fx = Join-Path $env:TEMP ('xpob-report-' + [guid]::NewGuid().ToString('N'))
           [IO.Directory]::CreateDirectory($fx) | Out-Null
           Copy-Item -LiteralPath (Join-Path $PWD 'src\installer\tests\sample.log') -Destination (Join-Path $fx 'xp_optimus_bypass.log')
+          [IO.Directory]::CreateDirectory((Join-Path $fx 'app')) | Out-Null
           $r = Get-XPReport $fx 'xplane' '0.9.3'
+          if ($r.install_id -notmatch '^[0-9a-f]{32}$') { throw ('report: install_id ' + $r.install_id) }
+          if ((Get-XPReport $fx 'xplane' '0.9.3').install_id -ne $r.install_id) { throw 'report: install_id not kept' }
+          $newId = Get-XPReportId $fx -Reset
+          if ($newId -eq $r.install_id -or $newId -notmatch '^[0-9a-f]{32}$') { throw 'report: install_id reset' }
+          if ((Get-XPReportId $fx) -ne $newId) { throw 'report: reset install_id not kept' }
           $json = ConvertTo-XPReportJson $r
           Write-Host $json
           if ($r.layer -ne '0.9.3+1a2b3c4d') { throw 'report: layer version' }

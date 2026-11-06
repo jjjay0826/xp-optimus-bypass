@@ -1,3 +1,11 @@
+# 0.9.3.2 / Installer — testing (DLL 0.9.3.1)
+
+- Anonymous reports carry a random installation ID (`install_id`, kept in `app\report_id.txt`, kept on reinstall,
+  removed on uninstall). It groups the reports of one installation; "Reset anonymous ID" in the report window makes a
+  new one. The install notice and the README say so.
+- 匿名回報加上隨機的安裝 ID（`app\report_id.txt`，重裝保留、解除安裝刪除），只用來把同一份安裝的回報歸在一起；
+  回報視窗可「重設匿名 ID」。安裝提醒和 README 已更新說明。
+
 # 0.9.3 / Installer — 2026-11-04 (DLL 0.9.3)
 
 - Global mode moved under an advanced checkbox and confirmed with an anti-cheat warning.

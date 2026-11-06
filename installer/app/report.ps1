@@ -1,5 +1,7 @@
 ﻿# Anonymous compatibility reports: built from the DLL log, sanitized, shown to the user, and (if allowed) sent once
 # after X-Plane closes. Only the fields below are ever sent; no paths, user, computer or hardware serial numbers.
+# install_id is a random number made on this PC the first time it is needed (not derived from the hardware or the
+# user). It only groups the reports of one installation; the user can reset it in the report window.
 
 # Set by the maintainer when the report server is online (see server/README.md). Empty = never send.
 $script:ReportEndpoint = 'https://xpob-reports.jjjay0826.workers.dev/v1/report'
@@ -11,6 +13,20 @@ function Get-CleanText([string]$Text, [int]$Max = 120) {
     $t = ($t -replace '[^\x20-\x7E]', '').Trim()
     if ($t.Length -gt $Max) { $t = $t.Substring(0, $Max) }
     return $t
+}
+
+# Random anonymous ID of this installation, kept in app\report_id.txt (kept on reinstall, removed on uninstall).
+function Get-XPReportId([string]$Root, [switch]$Reset) {
+    $app = Join-Path $Root 'app'
+    if (-not (Test-Path -LiteralPath $app -PathType Container)) { return '' }
+    $file = Join-Path $app 'report_id.txt'
+    if (-not $Reset -and (Test-Path -LiteralPath $file -PathType Leaf)) {
+        $id = ([string](Get-Content -LiteralPath $file -TotalCount 1 -ErrorAction SilentlyContinue)).Trim().ToLowerInvariant()
+        if ($id -match '^[0-9a-f]{32}$') { return $id }
+    }
+    $id = [guid]::NewGuid().ToString('N')  # random (version 4), nothing from this PC
+    Set-Content -LiteralPath $file -Value $id -Encoding ASCII
+    return $id
 }
 
 function Get-Median([double[]]$Values) {
@@ -35,7 +51,7 @@ function Get-XPReport([string]$Root, [string]$InstallMode = '', [string]$Install
     if ($lines.Count -eq 0) { return $null }
 
     $r = [ordered]@{
-        schema = $script:ReportSchema; layer = ''; installer = (Get-CleanText $InstallerVersion 20); install_mode = (Get-CleanText $InstallMode 10)
+        schema = $script:ReportSchema; install_id = (Get-XPReportId $Root); layer = ''; installer = (Get-CleanText $InstallerVersion 20); install_mode = (Get-CleanText $InstallMode 10)
         windows = ''; xplane = ''; render_gpu = ''; render_driver = ''; intel_gpu = ''; intel_driver = ''
         screens = 0; intel_screens = 0; window_on_intel = $null; mode = ''; path_pref = ''; test_switches = $false
         result = 'unknown'; reason = ''; mem = ''; conv = ''; probe = $null; fps = [ordered]@{}; overlays = @(); errors = @()
@@ -158,20 +174,37 @@ function Show-XPReportWindow([string]$Root, $Owner, [string]$InstallMode = '', [
     $box.Font = New-Object Drawing.Font('Consolas', 10)
     if ($report) { $text = Get-XPReportText $report $Root }
     else { $text = (T '還沒有這次執行的紀錄。用專用入口啟動 X-Plane 飛一下，關閉後再開啟這個視窗。') }
-    $box.Text = (T '自動回報只會送出下面這些欄位（不含路徑、使用者名稱、電腦名稱）。') + "`r`n`r`n" + $text
+    $header = (T '自動回報只會送出下面這些欄位（不含路徑、使用者名稱、電腦名稱）。') + "`r`n" +
+              (T 'install_id 是安裝時隨機產生的匿名編號，跟硬體和個人資料無關，只用來把這台電腦的多份回報歸在一起。可以按「重設匿名 ID」換一個新的。') + "`r`n`r`n"
+    $box.Text = $header + $text
+    $holder = @{ text = $text }  # a reference type: the button closures below see a new text after a reset
+    # Closures made with GetNewClosure() do not see this script's functions, so pass them in as script blocks.
+    $getId = ${function:Get-XPReportId}; $toText = ${function:Get-XPReportText}
+    $resetMsg = (T '已換成新的匿名 ID：')
     $panel = New-Object Windows.Forms.FlowLayoutPanel
     $panel.Dock = 'Bottom'; $panel.Height = 46; $panel.FlowDirection = 'RightToLeft'
     $closeBtn = New-Object Windows.Forms.Button; $closeBtn.Text = (T '關閉'); $closeBtn.Width = 120; $closeBtn.Height = 34
     $copyBtn = New-Object Windows.Forms.Button; $copyBtn.Text = (T '複製'); $copyBtn.Width = 120; $copyBtn.Height = 34
     $ghBtn = New-Object Windows.Forms.Button; $ghBtn.Text = (T '在 GitHub 回報'); $ghBtn.Width = 170; $ghBtn.Height = 34
+    $resetBtn = New-Object Windows.Forms.Button; $resetBtn.Text = (T '重設匿名 ID'); $resetBtn.Width = 170; $resetBtn.Height = 34
     $copyBtn.Enabled = $null -ne $report; $ghBtn.Enabled = $null -ne $report
-    $panel.Controls.AddRange(@($closeBtn, $copyBtn, $ghBtn))
+    $resetBtn.Enabled = Test-Path -LiteralPath (Join-Path $Root 'app') -PathType Container
+    $panel.Controls.AddRange(@($closeBtn, $copyBtn, $ghBtn, $resetBtn))
     $window.Controls.Add($box); $window.Controls.Add($panel)
     $closeBtn.Add_Click({ $window.Close() }.GetNewClosure())
-    $copyBtn.Add_Click({ [Windows.Forms.Clipboard]::SetText($text) }.GetNewClosure())
+    $resetBtn.Add_Click({
+        $newId = & $getId $Root -Reset
+        if ($report) {
+            $report.install_id = $newId
+            $holder.text = & $toText $report $Root
+            $box.Text = $header + $holder.text
+        }
+        [void][Windows.Forms.MessageBox]::Show(($resetMsg + $newId), 'XP Optimus Bypass', 'OK', 'Information')
+    }.GetNewClosure())
+    $copyBtn.Add_Click({ [Windows.Forms.Clipboard]::SetText($holder.text) }.GetNewClosure())
     $ghBtn.Add_Click({
-        [Windows.Forms.Clipboard]::SetText($text)
-        $body = [Uri]::EscapeDataString("Report (also copied to the clipboard):`n`n" + $text)
+        [Windows.Forms.Clipboard]::SetText($holder.text)
+        $body = [Uri]::EscapeDataString("Report (also copied to the clipboard):`n`n" + $holder.text)
         if ($body.Length -gt 6000) { $body = [Uri]::EscapeDataString('Please paste the report from the clipboard here.') }
         Start-Process ('https://github.com/jjjay0826/xp-optimus-bypass/issues/new?labels=report&title=' + [Uri]::EscapeDataString('Compatibility report') + '&body=' + $body)
     }.GetNewClosure())

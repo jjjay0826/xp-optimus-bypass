@@ -8,6 +8,8 @@
   `VK_ERROR_DEVICE_LOST`. Before, only a flush noticed a stuck worker, and an acquire could wait forever.
 - The worker marks itself idle after every job, so the watchdog cannot mistake a job that returned early (for
   example the `test_fail_intel_after` branch) for a stuck worker (found in review).
+- Installer: the log window's **Report** button could not reach the script's functions from its click handler
+  (PowerShell closures); it now calls them through captured script blocks, and CI checks that pattern on Windows.
 - vPresent checks for a lost worker right after a path switch gave up, so no job is queued on a worker that will never
   run it (found in review).
 - **Regression tests for the two failure paths:** `test_hang_worker_after=N` (the worker hangs forever, like a driver

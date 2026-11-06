@@ -175,6 +175,21 @@ jobs:
           $text = Get-XPReportText $r $fx
           if (-not $text.Contains('render_gpu: NVIDIA GeForce GTX 1650')) { throw 'report: text' }
           Remove-Item -LiteralPath $fx -Recurse -Force
+          # GUI button handlers are closures (GetNewClosure); they must reach this script's functions through
+          # script blocks captured beforehand (as in log-viewer.ps1 / report.ps1), not by name
+          $probe = Join-Path $env:TEMP ('xpob-closure-' + [guid]::NewGuid().ToString('N') + '.ps1')
+          Set-Content -LiteralPath $probe -Value @'
+          function Get-Answer { 'ok-' + $script:Marker }
+          $script:Marker = 'script'
+          $byName = { try { Get-Answer } catch { 'not found' } }.GetNewClosure()
+          $f = ${function:Get-Answer}
+          $byBlock = { & $f }.GetNewClosure()
+          [pscustomobject]@{ byName = (& $byName); byBlock = (& $byBlock) }
+          '@
+          $res = & $probe
+          Remove-Item -LiteralPath $probe -Force
+          Write-Host ('closure by name: ' + $res.byName + ' | by script block: ' + $res.byBlock)
+          if ($res.byBlock -ne 'ok-script') { throw 'closure pattern: script block call failed' }
           Write-Host 'Windows syntax, language, destination boundary and report checks passed; manual X-Plane/installer tests remain required.'
 
   publish:

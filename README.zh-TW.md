@@ -14,7 +14,8 @@
 
 ## 0.9.3.2 新功能
 
-- `vkAcquireNextImage(2)KHR` 照 X-Plane 給的等待時間處理；一次送出多個 swapchain 時不會把 layer 的 handle 交給驅動；回報真實的螢幕更新率。
+- layer 自己的程式裡不再有無限等待：除了 0.9.3.1 的 GeForce／Intel／DXGI 上限，背景工作的 flush 30 秒後會放棄，看門狗也會發現卡在驅動呼叫裡的背景執行緒；這時 X-Plane 會收到 device lost 錯誤而不是卡住，GPU 可能還在用的資源不會被釋放。測試開關 `test_hang_worker_after` 和 `test_fail_acquire_submit_every` 可以實際測這些情況。
+- `vkAcquireNextImage(2)KHR` 照 X-Plane 給的等待時間處理（送出失敗時會把畫面還回去）；一次送出多個 swapchain 時不會把 layer 的 handle 交給驅動；回報真實的螢幕更新率。
 - `measure_driver=1` 會把每幀拆成等 GPU、呼叫驅動、X-Plane 自己的 CPU 計算三塊。
 - 安裝程式：匿名回報加上可重設的隨機安裝 ID；X-Plane 啟動較慢（例如 Steam 啟動選項）時不會太早跳警告；只解除本套件自己檔案的下載標記。
 

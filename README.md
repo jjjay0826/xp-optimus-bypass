@@ -12,8 +12,12 @@ Download **[XP_Optimus_Bypass_v0.9.3.2.zip](https://github.com/jjjay0826/xp-opti
 
 ## What's new in 0.9.3.2
 
-- `vkAcquireNextImage(2)KHR` honour X-Plane's timeout; a present with several swapchains never hands the layer's
-  handle to the driver; the refresh rate reported is the real one of X-Plane's screen.
+- No endless wait is left in the layer's own code: besides the GeForce / Intel / DXGI limits of 0.9.3.1, the worker
+  flush gives up after 30 s and a watchdog notices a worker stuck inside a driver call; X-Plane then gets a lost-device
+  error instead of freezing, and nothing the GPU may still use is freed. Test switches `test_hang_worker_after` and
+  `test_fail_acquire_submit_every` exercise these paths.
+- `vkAcquireNextImage(2)KHR` honour X-Plane's timeout (and give the image back if their submit fails); a present with
+  several swapchains never hands the layer's handle to the driver; the refresh rate reported is the real one.
 - `measure_driver=1` splits each frame into waiting for the GPU, driver calls and X-Plane's own CPU time.
 - Installer: anonymous reports carry a random, resettable installation ID; the launcher no longer warns too early when
   X-Plane starts slowly (Steam launch options); only the package's own files are unblocked.

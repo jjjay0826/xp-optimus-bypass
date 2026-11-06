@@ -24,11 +24,13 @@
     $reportButton = New-Object Windows.Forms.Button
     $reportButton.Text = 'Report / 產生回報'
     $reportButton.Dock = 'Bottom'; $reportButton.Height = 34
+    # Closures made with GetNewClosure() do not see this script's functions, so pass them in as script blocks.
+    $getState = ${function:Get-InstallState}; $showReport = ${function:Show-XPReportWindow}
     $reportButton.Add_Click({
-        $state = Get-InstallState
+        $state = & $getState
         $mode = ''; $ver = ''
         if ($state) { $mode = [string]$state.mode; $ver = [string]$state.installerVersion }
-        Show-XPReportWindow $Root $window $mode $ver
+        & $showReport $Root $window $mode $ver
     }.GetNewClosure())
     $window.Controls.Add($reportButton)
     $refresh = {

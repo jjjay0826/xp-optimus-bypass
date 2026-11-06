@@ -89,8 +89,8 @@ static LARGE_INTEGER g_freq;
 static thread_local bool g_internalCreate = false;
 static std::atomic<bool> g_intelBroken{false};    // Intel side failed: native path for the rest of the session
 static std::atomic<bool> g_intelHung{false};      // an Intel wait timed out: never wait on the Intel device again
-static std::atomic<bool> g_nvHung{false};
-static std::atomic<bool> g_workerStuck{false};    // a flush gave no answer in 30 s: worker treated as lost         // a GeForce fence gave no answer for 10 s: device treated as lost
+static std::atomic<bool> g_nvHung{false};         // a GeForce fence gave no answer for 10 s: device treated as lost
+static std::atomic<bool> g_workerStuck{false};    // the worker did not finish for 30 s (flush or watchdog): lost
 // NVIDIA's native output puts the window into DXGI flip mode. Older Intel Vulkan drivers present the old way, which
 // Windows does not show on a window that has used flip mode: after native output the bypass would keep running
 // but the picture would stay frozen. So once native output was shown, the bypass does not come back (by default).
@@ -515,13 +515,11 @@ public:
         }
         cv_.notify_one();
     }
-    // Wait until all work pushed so far has finished. This cannot return early: callers free resources the queued
-    // work uses. It is still bounded, because every wait inside the work is time-limited (GeForce fence 2 x 10 s,
-    // Intel fence 5 s, DXGI 2 s; after a GeForce or Intel hang the work returns at once). A long wait is logged.
-    // Returns false if the work did not finish within kFlushSteps x 1 s (counted, so sleep / resume does not count).
-    // That can only happen if a driver call inside the work itself never returns (every wait the layer makes is
-    // limited, a job takes at most about 27 s). Then the worker counts as lost (g_workerStuck): callers do not free
-    // anything the work may use (they leak it) and report VK_ERROR_DEVICE_LOST instead of blocking X-Plane.
+    // Wait until all work pushed so far has finished; callers then free resources that work used. Every wait inside
+    // the work is time-limited (GeForce fence 2 x 10 s, Intel fence 5 s, DXGI 2 s), so this normally returns soon; a
+    // wait over 3 s is logged. Returns false after kFlushSteps x 1 s (counted, so sleep / resume does not count),
+    // which only happens if a driver call inside the work never returns. Then the worker counts as lost
+    // (g_workerStuck): callers free nothing the work may use (they leak it) and report VK_ERROR_DEVICE_LOST.
     static constexpr int kFlushSteps = 30;
     bool flush() {
         if (g_workerStuck) return false;

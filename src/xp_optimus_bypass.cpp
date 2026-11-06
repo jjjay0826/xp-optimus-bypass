@@ -2567,6 +2567,12 @@ static VkResult vAcquire(VSwap* s, uint64_t timeoutNs, VkSemaphore sem, VkFence 
     DevData* d = s->d;
     if (g_virtualBroken) return VK_ERROR_OUT_OF_DATE_KHR;  // X-Plane recreates -> real NVIDIA swapchain
     if (g_nvHung) return VK_ERROR_DEVICE_LOST;
+    static bool toldAcq = false;
+    if (!toldAcq) {  // what X-Plane asks for when it takes an image (does it wait on our fence before recording?)
+        toldAcq = true;
+        logf("[diag] X-Plane acquire: timeout %s, semaphore %s, fence %s", timeoutNs == UINT64_MAX ? "infinite" :
+             std::to_string(timeoutNs).c_str(), sem ? "yes" : "no", fence ? "yes" : "no");
+    }
     double t0 = nowMs();
     int e = s->err.exchange(0);
     if (e < 0) return (VkResult)e;
@@ -3147,6 +3153,11 @@ static void startWatchdog() {
 }
 
 static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
+    static bool toldPres = false;
+    if (!toldPres) {
+        toldPres = true;
+        logf("[diag] X-Plane present: %u wait semaphore(s)", pi->waitSemaphoreCount);
+    }
     DevData* d = s->d;
     double t0 = nowMs();
     startWatchdog();

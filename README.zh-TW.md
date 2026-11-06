@@ -6,9 +6,9 @@
 
 ## 下載
 
-**目前版本：[0.9.3.1](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3.1)**：0.9.3 的相容性大改版，再加上剩餘等待的時間上限，已在作者的 ASUS TUF F15（GTX 1650 + UHD Graphics，Windows 11）上實測。其他筆電還沒測過，匿名回報（見下方）會顯示在哪些電腦上能用。
+**目前版本：[0.9.3.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3.2)**：0.9.3 的相容性大改版，layer 裡所有等待都有時間上限，修正 Vulkan 規範細節，並加入可重設的匿名回報 ID，已在作者的 ASUS TUF F15（GTX 1650 + UHD Graphics，Windows 11）上實測。其他筆電還沒測過，匿名回報（見下方）會顯示在哪些電腦上能用。
 
-下載 **[XP_Optimus_Bypass_v0.9.3.1.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.3.1/XP_Optimus_Bypass_v0.9.3.1.zip)**。GitHub 自動產生的「Source code」壓縮檔是給開發者的。舊版（[0.9.3](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3)、[0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2)）仍可下載。
+下載 **[XP_Optimus_Bypass_v0.9.3.2.zip](https://github.com/jjjay0826/xp-optimus-bypass/releases/download/v0.9.3.2/XP_Optimus_Bypass_v0.9.3.2.zip)**。GitHub 自動產生的「Source code」壓縮檔是給開發者的。舊版（[0.9.3.1](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3.1)、[0.9.3](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.3)、[0.9.2](https://github.com/jjjay0826/xp-optimus-bypass/releases/tag/v0.9.2)）仍可下載。
 
 [所有版本](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [安裝程式變更紀錄](installer/CHANGELOG.md) · [快速說明（英中）](installer/README.txt) · [0.9.3 規劃](docs/PLAN-0.9.3.md)
 
@@ -19,6 +19,12 @@ DLL 沒有數位簽章。要確認下載的是正式發布的版本：
 - 比對 ZIP 的 SHA-256（PowerShell：`Get-FileHash XP_Optimus_Bypass_v*.zip`）和 release 說明裡的是否相同；
 - 或驗證建置來源：`gh attestation verify XP_Optimus_Bypass_v<版本>.zip -R jjjay0826/xp-optimus-bypass`；
 - ZIP 裡的 `SHA256SUMS.txt` 列出每個檔案的雜湊；`xp_optimus_bypass.log` 第一行會顯示 DLL 版本和 build id。
+
+## 0.9.3.2 新功能
+
+- `vkAcquireNextImage(2)KHR` 照 X-Plane 給的等待時間處理；一次送出多個 swapchain 時不會把 layer 的 handle 交給驅動；回報真實的螢幕更新率。
+- `measure_driver=1` 會把每幀拆成等 GPU、呼叫驅動、X-Plane 自己的 CPU 計算三塊。
+- 安裝程式：匿名回報加上可重設的隨機安裝 ID；X-Plane 啟動較慢（例如 Steam 啟動選項）時不會太早跳警告；只解除本套件自己檔案的下載標記。
 
 ## 0.9.3.1 新功能
 
@@ -49,7 +55,7 @@ DLL 沒有數位簽章。要確認下載的是正式發布的版本：
 
 ## 安裝
 
-1. 完整解壓縮 `XP_Optimus_Bypass_v0.9.3.1.zip`，BAT 檔和 `app`、`docs`、`fallback` 資料夾要放在一起。
+1. 完整解壓縮 `XP_Optimus_Bypass_v0.9.3.2.zip`，BAT 檔和 `app`、`docs`、`fallback` 資料夾要放在一起。
 2. 關閉 X-Plane，執行 **`XP_Optimus_Bypass.bat`**。
 3. 確認 **X-Plane 的安裝位置**：從清單選、按「瀏覽」，或輸入 `X-Plane.exe` 或它所在資料夾的路徑。
 4. 選一個資料夾安裝 **XP Optimus Bypass**，預設是 `%LOCALAPPDATA%\Programs\XP Optimus Bypass`，要選你的 Windows 帳號能寫入的位置。
@@ -176,7 +182,7 @@ certutil -hashfile app\xp_optimus_bypass.dll SHA256
 把結果和 `SHA256SUMS.txt` 裡 `app/xp_optimus_bypass.dll` 那一行比對（前面可能有 `./`）。GitHub Actions 發布的版本另有建置來源證明：
 
 ```sh
-gh attestation verify XP_Optimus_Bypass_v0.9.3.1.zip -R jjjay0826/xp-optimus-bypass
+gh attestation verify XP_Optimus_Bypass_v0.9.3.2.zip -R jjjay0826/xp-optimus-bypass
 ```
 
 證明只適用於 workflow 產生的原始壓縮檔，修改或重新打包過的 zip 就不適用。
@@ -187,10 +193,10 @@ gh attestation verify XP_Optimus_Bypass_v0.9.3.1.zip -R jjjay0826/xp-optimus-byp
 
 ```sh
 sh build.sh
-sh package.sh 0.9.3.1
+sh package.sh 0.9.3.2
 ```
 
-會產生 `XP_Optimus_Bypass_v0.9.3.1.zip`。
+會產生 `XP_Optimus_Bypass_v0.9.3.2.zip`。
 
 - Vulkan layer 原始碼：[`src/xp_optimus_bypass.cpp`](src/xp_optimus_bypass.cpp)
 - 安裝程式原始碼和文件：[`installer/`](installer/)

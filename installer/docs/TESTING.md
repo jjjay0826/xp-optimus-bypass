@@ -36,6 +36,7 @@ X-Plane 12.4.3. / 作者筆電實測。
 | Installer notice, fresh install to default folder, uninstall, fallback folder install/start/uninstall | pass |
 | No leftover console windows; Steam direct start; anonymous report sent | pass |
 | 0.9.3.1: timed DXGI back-buffer wait, bounded NVIDIA waits | pass: ~41-44 FPS, no timeouts or `[hang]` outside loading |
+| 0.9.3.2: acquire timeout, multi-swapchain guard, real refresh rate, measure split, anonymous ID, launcher wait | pass: ~40-43 FPS at KSEA; Alt-Tab / minimize / resize without fallback or `[hang]` outside loading; report sent with `install_id`, summary counts `installs` |
 | Not tested: `test_force_blit`, Global mode, external / multiple monitors, HDR, VR, other laptops | - |
 
 # Runtime acceptance / 實機驗收

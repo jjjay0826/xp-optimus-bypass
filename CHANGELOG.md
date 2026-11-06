@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.3.2 — testing
+## 0.9.3.2 — 2026-11-06
 
 - **vkAcquireNextImage(2)KHR honour X-Plane's timeout:** 0 only checks (`VK_NOT_READY`), a finite timeout returns
   `VK_TIMEOUT`, `UINT64_MAX` waits as before. Nothing is signaled when no image is returned, as the spec requires.

@@ -1,4 +1,4 @@
-# 0.9.3.2 / Installer — testing (DLL 0.9.3.1)
+# 0.9.3.2 / Installer — 2026-11-06 (DLL 0.9.3.2)
 
 - Anonymous reports carry a random installation ID (`install_id`, kept in `app\report_id.txt`, kept on reinstall,
   removed on uninstall). It groups the reports of one installation; "Reset anonymous ID" in the report window makes a

@@ -12,6 +12,14 @@
 
 [所有版本](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [安裝程式變更紀錄](installer/CHANGELOG.md) · [快速說明（英中）](installer/README.txt) · [0.9.3 規劃](docs/PLAN-0.9.3.md)
 
+## 驗證下載檔
+
+DLL 沒有數位簽章。要確認下載的是正式發布的版本：
+
+- 比對 ZIP 的 SHA-256（PowerShell：`Get-FileHash XP_Optimus_Bypass_v*.zip`）和 release 說明裡的是否相同；
+- 或驗證建置來源：`gh attestation verify XP_Optimus_Bypass_v<版本>.zip -R jjjay0826/xp-optimus-bypass`；
+- ZIP 裡的 `SHA256SUMS.txt` 列出每個檔案的雜湊；`xp_optimus_bypass.log` 第一行會顯示 DLL 版本和 build id。
+
 ## 0.9.3.1 新功能
 
 - Intel 輸出最多等 2 秒拿到空的 back buffer，等不到就切到 native，DXGI Present 不會再卡住；NVIDIA 的等待超過 3 秒會記錄在 log，GPU 被重置時會直接返回。

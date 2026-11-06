@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.3.2 — testing
+
+- **vkAcquireNextImage(2)KHR honour X-Plane's timeout:** 0 only checks (`VK_NOT_READY`), a finite timeout returns
+  `VK_TIMEOUT`, `UINT64_MAX` waits as before. Nothing is signaled when no image is returned, as the spec requires.
+- **A present with several swapchains** (one of them the layer's) no longer hands the layer's handle to the driver:
+  the real swapchains are presented, the layer's image is released, and X-Plane is asked to use real NVIDIA
+  swapchains from then on. X-Plane itself presents one swapchain; this only guards other cases.
+- `vkGetRefreshCycleDurationGOOGLE` reports the refresh rate of the screen X-Plane's window is on (was 60 Hz).
+- Installer 0.9.3.2: anonymous reports carry a random, resettable installation ID (see README); the installer
+  removes the download mark only from its own files; BENCHMARK.md no longer names an old DLL version.
+
 ## 0.9.3.1 — 2026-11-04 (updated 2026-11-05)
 
 - **DXGI Present no longer has to block:** the Intel swapchain uses a frame latency waitable object; the worker waits

@@ -9,14 +9,23 @@ try {
         throw ('PowerShell is restricted on this PC (' + $ExecutionContext.SessionState.LanguageMode + ' mode). ' +
                'Use the files in the "fallback" folder instead. / 這台電腦的 PowerShell 受到限制，請改用 fallback 資料夾裡的安裝方式。')
     }
-    # Files from a downloaded ZIP carry an Internet mark; remove it from our own files only.
-    Get-ChildItem -LiteralPath (Split-Path -Parent $PSScriptRoot) -Recurse -File -ErrorAction SilentlyContinue |
-        Unblock-File -ErrorAction SilentlyContinue
     Add-Type -AssemblyName System.Windows.Forms
     $sourceRoot = Split-Path -Parent $PSScriptRoot
     $files = @('XP_Optimus_Bypass.bat','README.txt','LICENSE','CHANGELOG.md')
     $appFiles = @('bootstrap.ps1','core.ps1','manager.ps1','discovery.ps1','launch.ps1','i18n.ps1','i18n.json','log-viewer.ps1','report.ps1',
         'xp_optimus_bypass.dll','xp_optimus_bypass.ini','xp_optimus_bypass.json','xp_optimus_bypass_global.json')
+    # Files from a downloaded ZIP carry an Internet mark; remove it from this package's own files only
+    # (the files listed above, plus the files directly inside its docs and fallback folders).
+    $own = @($files | ForEach-Object { Join-Path $sourceRoot $_ }) + @($appFiles | ForEach-Object { Join-Path $PSScriptRoot $_ })
+    foreach ($sub in @('docs', 'fallback')) {
+        $dir = Join-Path $sourceRoot $sub
+        if (Test-Path -LiteralPath $dir -PathType Container) {
+            $own += @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+        }
+    }
+    foreach ($f in $own) {
+        if (Test-Path -LiteralPath $f -PathType Leaf) { Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue }
+    }
     # A separate installer cache survives uninstall. Never run maintenance from files being removed.
     if ([IO.Path]::GetFullPath($sourceRoot).TrimEnd('\') -ine [IO.Path]::GetFullPath($cache).TrimEnd('\')) {
         [IO.Directory]::CreateDirectory((Join-Path $cache 'app')) | Out-Null

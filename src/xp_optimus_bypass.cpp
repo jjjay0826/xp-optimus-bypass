@@ -47,7 +47,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.3.1"
+#define XPOB_VERSION "0.9.3.2"
 #ifndef XPOB_BUILD
 #define XPOB_BUILD "dev"
 #endif
@@ -2547,7 +2547,8 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
 
 // ================================================================ what X-Plane calls
 
-static VkResult vAcquire(VSwap* s, VkSemaphore sem, VkFence fence, uint32_t* pIndex) {
+// timeoutNs as given to vkAcquireNextImage(2)KHR: 0 = only check, UINT64_MAX = wait until an image is free.
+static VkResult vAcquire(VSwap* s, uint64_t timeoutNs, VkSemaphore sem, VkFence fence, uint32_t* pIndex) {
     DevData* d = s->d;
     if (g_virtualBroken) return VK_ERROR_OUT_OF_DATE_KHR;  // X-Plane recreates -> real NVIDIA swapchain
     if (g_nvHung) return VK_ERROR_DEVICE_LOST;
@@ -2561,6 +2562,8 @@ static VkResult vAcquire(VSwap* s, VkSemaphore sem, VkFence fence, uint32_t* pIn
         std::unique_lock<std::mutex> lk(s->m);
         double w0 = nowMs();
         const uint32_t V = (uint32_t)s->v.size();
+        const bool forever = timeoutNs == UINT64_MAX;
+        const double limitMs = forever ? 0.0 : (double)timeoutNs / 1e6;
         for (;;) {
             bool found = false;
             for (uint32_t n = 0; n < V; ++n) {
@@ -2568,8 +2571,13 @@ static VkResult vAcquire(VSwap* s, VkSemaphore sem, VkFence fence, uint32_t* pIn
                 if (s->v[j].state == 0) { i = j; found = true; break; }
             }
             if (found) break;
+            double left = forever ? 200.0 : limitMs - (nowMs() - w0);
+            if (left <= 0) {  // as the spec says: nothing signaled, no image index returned
+                g_xStage = XS_OUTSIDE;
+                return timeoutNs == 0 ? VK_NOT_READY : VK_TIMEOUT;
+            }
             g_xStage = XS_ACQUIRE_WAIT;
-            s->cv.wait_for(lk, std::chrono::milliseconds(200));
+            s->cv.wait_for(lk, std::chrono::microseconds((long long)(std::min(left, 200.0) * 1000.0) + 1));
         }
         g_xStage = XS_OUTSIDE;
         waited = nowMs() - w0;
@@ -3864,16 +3872,63 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_GetSwapchainImagesKHR(VkDevice device, 
 
 static VKAPI_ATTR VkResult VKAPI_CALL XP_AcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout,
                                                               VkSemaphore sem, VkFence fence, uint32_t* pIndex) {
-    if (VSwap* vs = vsOf(swapchain)) return vAcquire(vs, sem, fence, pIndex);
+    if (VSwap* vs = vsOf(swapchain)) return vAcquire(vs, timeout, sem, fence, pIndex);
     DevData* d = devOf(key(device));
     return d ? d->vkAcquireNextImageKHR(device, swapchain, timeout, sem, fence, pIndex) : VK_ERROR_INITIALIZATION_FAILED;
 }
 
 static VKAPI_ATTR VkResult VKAPI_CALL XP_AcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* info,
                                                                uint32_t* pIndex) {
-    if (VSwap* vs = vsOf(info->swapchain)) return vAcquire(vs, info->semaphore, info->fence, pIndex);
+    if (VSwap* vs = vsOf(info->swapchain)) return vAcquire(vs, info->timeout, info->semaphore, info->fence, pIndex);
     DevData* d = devOf(key(device));
     return d ? d->vkAcquireNextImage2KHR(device, info, pIndex) : VK_ERROR_INITIALIZATION_FAILED;
+}
+
+// One present with several swapchains, at least one of them the layer's (X-Plane does not do this; VR goes
+// through OpenXR). Never hand a virtual handle to the driver: the real swapchains are presented, the virtual images
+// are released unshown, and X-Plane is asked to recreate its swapchains as real NVIDIA ones from now on.
+static VkResult presentMixed(DevData* d, VkQueue queue, const VkPresentInfoKHR* pi) {
+    static bool told = false;
+    if (!told) {
+        told = true;
+        logf("present with %u swapchains, including the layer's -> X-Plane gets real NVIDIA swapchains (no bypass)",
+             pi->swapchainCount);
+    }
+    std::vector<VkSwapchainKHR> sc;
+    std::vector<uint32_t> idx, where;
+    VkPresentInfoKHR none{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+    for (uint32_t k = 0; k < pi->swapchainCount; ++k) {
+        if (VSwap* vs = vsOf(pi->pSwapchains[k])) {
+            dropFrame(vs, queue, pi->pImageIndices[k], &none);  // release the image; the real present below waits
+            if (pi->pResults) pi->pResults[k] = VK_ERROR_OUT_OF_DATE_KHR;
+        } else {
+            sc.push_back(pi->pSwapchains[k]);
+            idx.push_back(pi->pImageIndices[k]);
+            where.push_back(k);
+        }
+    }
+    g_virtualBroken = true;  // vAcquire reports OUT_OF_DATE; X-Plane recreates -> real swapchains
+    VkResult r = VK_SUCCESS;
+    if (!sc.empty()) {
+        VkPresentInfoKHR p2 = *pi;
+        p2.pNext = nullptr;  // extension structs hold one entry per original swapchain
+        p2.swapchainCount = (uint32_t)sc.size();
+        p2.pSwapchains = sc.data();
+        p2.pImageIndices = idx.data();
+        std::vector<VkResult> res(sc.size(), VK_SUCCESS);
+        p2.pResults = res.data();
+        r = d->vkQueuePresentKHR(queue, &p2);
+        if (pi->pResults)
+            for (size_t k = 0; k < where.size(); ++k) pi->pResults[where[k]] = res[k];
+    } else if (pi->waitSemaphoreCount) {  // nothing real to present: still consume X-Plane's wait semaphores
+        std::vector<VkPipelineStageFlags> st(pi->waitSemaphoreCount, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        si.waitSemaphoreCount = pi->waitSemaphoreCount;
+        si.pWaitSemaphores = pi->pWaitSemaphores;
+        si.pWaitDstStageMask = st.data();
+        d->vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
+    }
+    return r < 0 ? r : VK_ERROR_OUT_OF_DATE_KHR;
 }
 
 static VKAPI_ATTR VkResult VKAPI_CALL XP_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pi) {
@@ -3881,6 +3936,9 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_QueuePresentKHR(VkQueue queue, const Vk
     if (!d) return VK_ERROR_INITIALIZATION_FAILED;
     if (d->active && pi->swapchainCount == 1)
         if (VSwap* vs = vsOf(pi->pSwapchains[0])) return vPresent(vs, queue, pi);
+    if (pi->swapchainCount > 1)
+        for (uint32_t k = 0; k < pi->swapchainCount; ++k)
+            if (vsOf(pi->pSwapchains[k])) return presentMixed(d, queue, pi);
     if (!g_isXPlane || d->internal) return d->vkQueuePresentKHR(queue, pi);
     g_xpThread = GetCurrentThreadId();
     mFrame();
@@ -3937,7 +3995,19 @@ static VKAPI_ATTR VkResult VKAPI_CALL XP_WaitForPresentKHR(VkDevice device, VkSw
 }
 static VKAPI_ATTR VkResult VKAPI_CALL XP_GetRefreshCycleDurationGOOGLE(VkDevice device, VkSwapchainKHR sc,
                                                                         VkRefreshCycleDurationGOOGLE* p) {
-    if (vsOf(sc)) { p->refreshDuration = 16666667; return VK_SUCCESS; }
+    if (VSwap* vs = vsOf(sc)) {  // the refresh rate of the screen X-Plane's window is on (60 Hz if unknown)
+        DWORD hz = 0;
+        MONITORINFOEXW mi{};
+        mi.cbSize = sizeof(mi);
+        DEVMODEW dm{};
+        dm.dmSize = sizeof(dm);
+        HMONITOR m = vs->hwnd ? MonitorFromWindow(vs->hwnd, MONITOR_DEFAULTTONEAREST) : nullptr;
+        if (m && GetMonitorInfoW(m, &mi) && EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm))
+            hz = dm.dmDisplayFrequency;
+        if (hz < 24 || hz > 1000) hz = 60;
+        p->refreshDuration = 1000000000ull / hz;
+        return VK_SUCCESS;
+    }
     DevData* d = devOf(key(device));
     return d->vkGetRefreshCycleDurationGOOGLE(device, sc, p);
 }

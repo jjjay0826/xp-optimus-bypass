@@ -10,6 +10,15 @@ Download **[XP_Optimus_Bypass_v0.9.3.1.zip](https://github.com/jjjay0826/xp-opti
 
 [繁體中文](README.zh-TW.md) · [Release history](https://github.com/jjjay0826/xp-optimus-bypass/releases) · [Installer changelog](installer/CHANGELOG.md) · [Quick guide / 英中操作說明](installer/README.txt) · [0.9.3 plan](docs/PLAN-0.9.3.md)
 
+## Verifying the download
+
+The DLL is not code-signed. To check that a download is the published build:
+
+- compare the ZIP's SHA-256 (`Get-FileHash XP_Optimus_Bypass_v*.zip` in PowerShell) with the one in the release notes;
+- or verify the build provenance: `gh attestation verify XP_Optimus_Bypass_v<version>.zip -R jjjay0826/xp-optimus-bypass`;
+- `SHA256SUMS.txt` inside the ZIP lists every file, and the first line of `xp_optimus_bypass.log` shows the DLL's
+  version and build id.
+
 ## What's new in 0.9.3.1
 
 - The Intel output waits for a free back buffer for at most 2 s (then switches to native), so DXGI Present does not

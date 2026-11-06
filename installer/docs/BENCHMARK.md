@@ -5,7 +5,8 @@ Use this so results from different laptops can be compared. It takes about 10 mi
 
 ## What you need
 
-- This package uses DLL 0.9.1.1-beta, which records FPS in both `mode=off` and `mode=auto`.
+- The DLL records FPS in both `mode=off` and `mode=auto` (since 0.9.1.1); the first log line shows its version
+  and build id.
   For an X-Plane-only installation, use the installed launch shortcut or open
   `XP_Optimus_Bypass.bat` and press **啟動 X-Plane (Launch X-Plane)** for both runs.
   Settings are in `<install-root>/app/xp_optimus_bypass.ini`; the log is
@@ -45,7 +46,7 @@ screenshot. Results where it *doesn't* help are just as useful.
 
 讓不同筆電的結果可以互相比較，全程大約 10 分鐘。
 
-**準備**：本包使用 DLL 0.9.1.1-beta，`mode=off` 與 `mode=auto` 都會記錄 FPS。
+**準備**：DLL 在 `mode=off` 與 `mode=auto` 都會記錄 FPS（0.9.1.1 起）；log 第一行會顯示版本和 build id。
 選「僅 X-Plane」安裝時，兩次都要從專用捷徑，或 `XP_Optimus_Bypass.bat` 視窗內的
 「啟動 X-Plane」按鈕啟動。設定在 `<安裝位置>/app/xp_optimus_bypass.ini`，log 在
 `<安裝位置>/xp_optimus_bypass.log`，詳見 [README](../README.txt)。關掉其他會使用顯卡的程式；

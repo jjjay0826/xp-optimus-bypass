@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.3.3 — testing
+## 0.9.3.2 — 2026-11-06 (updated the same day)
 
 - **Worker flush has a total limit:** if the worker's work does not finish within 30 s (only possible if a driver
   call never returns; every wait the layer makes is limited), the worker counts as lost. Nothing it may still use is
@@ -9,9 +9,6 @@
   instead of staying taken for the rest of the session.
 - README lists the known limits of the virtual swapchain (several swapchains in one present, device groups,
   `VK_GOOGLE_display_timing`, NVIDIA low-latency calls).
-
-## 0.9.3.2 — 2026-11-06
-
 - **vkAcquireNextImage(2)KHR honour X-Plane's timeout:** 0 only checks (`VK_NOT_READY`), a finite timeout returns
   `VK_TIMEOUT`, `UINT64_MAX` waits as before. Nothing is signaled when no image is returned, as the spec requires.
 - **A present with several swapchains** (one of them the layer's) no longer hands the layer's handle to the driver:

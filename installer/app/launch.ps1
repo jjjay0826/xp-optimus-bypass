@@ -42,9 +42,11 @@ try {
     $startedAt = Get-Date
     $process = Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) -PassThru -ErrorAction Stop
     Write-Diagnostic ('Started process ID: ' + $process.Id)
-    # This launcher runs separately from the GUI. Allow startup time, then report missing DLL output.
+    # This launcher runs separately from the GUI. X-Plane loads Vulkan (and so the layer) only after its own start-up,
+    # which can include Steam's "launch options" window and slow first starts: wait as long as X-Plane is running
+    # (up to 5 minutes), and only warn if it exited or never wrote the log.
     $written = $false
-    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+    for ($attempt = 0; $attempt -lt 600; $attempt++) {
         Start-Sleep -Milliseconds 500
         if (Test-Path -LiteralPath $rootLog) {
             $info = Get-Item -LiteralPath $rootLog

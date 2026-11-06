@@ -13,6 +13,8 @@
 - `vkGetRefreshCycleDurationGOOGLE` reports the refresh rate of the screen X-Plane's window is on (was 60 Hz).
 - Installer 0.9.3.2: anonymous reports carry a random, resettable installation ID (see README); the installer
   removes the download mark only from its own files; BENCHMARK.md no longer names an old DLL version.
+- Launcher: waits for the DLL log as long as X-Plane is still starting (up to 5 minutes, was 30 s), so Steam's
+  "launch options" window or a slow first start no longer shows a false "No fresh DLL log" warning.
 
 ## 0.9.3.1 — 2026-11-04 (updated 2026-11-05)
 

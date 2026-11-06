@@ -100,7 +100,7 @@ ACTIVE: X-Plane ... -> GeForce -> host memory -> Intel -> screen
 | `probe` | `1`：預設，每種配置實測比較一次並保留較快的（需要 DXGI 輸出）；`0`：在 Intel 螢幕上一律用 bypass。刪掉 `xpob_path_cache.txt` 可重新比較 |
 | `intel_output` | `auto`：預設，Intel 透過 DXGI flip 模式（D3D12）輸出，不行才用 Vulkan；`dxgi`；`vulkan`：0.9.2 的做法（同一個視窗用過 native 之後無法切回 bypass） |
 | `measure_driver` | `1`：記錄 X-Plane 主執行緒每幀在驅動裡各類呼叫花的時間（`[drv]`，診斷用）；預設 `0` |
-| `test_*` | 測試開關，平常設 `0`：`test_force_blit`、`test_force_cpu_copy`、`test_no_extra_queue`、`test_fail_intel_after=N`（N 幀後模擬 Intel 出錯）、`test_bypass_after_native` |
+| `test_*` | 測試開關，平常設 `0`：`test_force_blit`、`test_force_cpu_copy`、`test_no_extra_queue`、`test_fail_intel_after=N`（N 幀後模擬 Intel 出錯）、`test_bypass_after_native`、`test_hang_worker_after=N`（第 N 幀時背景執行緒永遠卡住）、`test_fail_acquire_submit_every=N`（每 N 次 acquire 模擬一次送出失敗） |
 
 ini 的 `mode` 控制 bypass 行為，跟安裝時選的「僅 X-Plane／全域」不同，後者控制 DLL 怎麼載入。
 

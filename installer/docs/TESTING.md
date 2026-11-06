@@ -19,6 +19,8 @@ X-Plane, keep the log. Change only the listed INI lines, then set them back. / �
 | 11 | manager: report checkbox on, fly, close X-Plane | `launcher-diagnostics.log`: report sent / not sent (no server yet); Report window shows no paths or user name |
 | 12 | installer | Global hidden until Advanced is ticked; confirmation dialog; fallback folder install / start / uninstall works |
 | 13 | Steam copy: launcher (Steam running / not running) | `launcher-diagnostics.log`: `Steam direct start: created ...steam_appid.txt (2014780)`, DLL log present; without Steam: "start Steam first"; uninstall removes that `steam_appid.txt` |
+| 14 | `test_hang_worker_after=3000` (about a minute into the flight) | `test_hang_worker_after=3000: the worker now hangs`; the picture stops; within about 30 s `worker thread stuck ... treated as lost` (or `worker thread gave no answer`); X-Plane shows a device-lost error or closes instead of freezing forever; no crash of Windows, the next start works |
+| 15 | `test_fail_acquire_submit_every=100`, fly 3 min | `simulated submit failure, image N given back` (first 3 times); X-Plane keeps running at normal FPS; no `[hang]` outside loading (a lost image would freeze it after 3 failures) |
 
 # Results / 驗收結果 (2026-11-04)
 
@@ -37,6 +39,7 @@ X-Plane 12.4.3. / 作者筆電實測。
 | No leftover console windows; Steam direct start; anonymous report sent | pass |
 | 0.9.3.1: timed DXGI back-buffer wait, bounded NVIDIA waits | pass: ~41-44 FPS, no timeouts or `[hang]` outside loading |
 | 0.9.3.2: acquire timeout, multi-swapchain guard, real refresh rate, measure split, anonymous ID, launcher wait | pass: ~40-43 FPS at KSEA; Alt-Tab / minimize / resize without fallback or `[hang]` outside loading; report sent with `install_id`, summary counts `installs` |
+| 0.9.3.3: worker-hang and acquire-submit-failure regression tests (rows 14, 15) | not run yet |
 | Not tested: `test_force_blit`, Global mode, external / multiple monitors, HDR, VR, other laptops | - |
 
 # Runtime acceptance / 實機驗收

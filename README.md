@@ -135,7 +135,7 @@ Edit **`app/xp_optimus_bypass.ini` inside the installed folder**, then restart X
 | `path` (0.9.3) | `auto` — default: bypass while the window is on an Intel-driven screen (after the measured comparison), native otherwise; `bypass` / `native` — force one path; `cpu-copy` — bypass with a CPU copy (testing). |
 | `probe` (0.9.3) | `1` — default: measure native vs bypass once per setup and keep the faster one (needs the DXGI Intel output); `0` — use the bypass whenever the window is on the Intel screen. Delete `xpob_path_cache.txt` to measure again. |
 | `intel_output` (0.9.3) | `auto` — default: the Intel GPU shows the picture through DXGI flip mode (D3D12), else Vulkan; `dxgi`; `vulkan` — the 0.9.2-style Intel Vulkan output (after native output on the same window the bypass cannot come back). |
-| `test_*` (0.9.3) | Test switches, leave at `0`: `test_force_blit`, `test_force_cpu_copy`, `test_no_extra_queue`, `test_fail_intel_after=N` (simulates an Intel failure after N bypass frames). |
+| `test_*` (0.9.3) | Test switches, leave at `0`: `test_force_blit`, `test_force_cpu_copy`, `test_no_extra_queue`, `test_fail_intel_after=N` (simulates an Intel failure after N bypass frames), `test_hang_worker_after=N` (the worker hangs forever at its Nth frame), `test_fail_acquire_submit_every=N` (every Nth acquire submit fails). |
 
 The INI `mode` setting controls bypass behavior. It is separate from the installer's **X-Plane only / Global** choice, which controls how the DLL is loaded.
 

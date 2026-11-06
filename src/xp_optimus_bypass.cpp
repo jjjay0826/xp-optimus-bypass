@@ -47,7 +47,7 @@
 #include <vector>
 
 #define LAYER_EXPORT extern "C" __declspec(dllexport)
-#define XPOB_VERSION "0.9.3.2"
+#define XPOB_VERSION "0.9.3.3"
 #ifndef XPOB_BUILD
 #define XPOB_BUILD "dev"
 #endif
@@ -70,6 +70,8 @@ struct Config {
     bool forceCpuCopy = false;    // do not use VK_EXT_external_memory_host
     bool noExtraQueue = false;    // pretend the graphics family has no spare queue
     int failIntelAfter = 0;       // simulate an Intel failure after this many bypass frames
+    int hangWorkerAfter = 0;      // test: the worker never returns from its Nth job (a driver call that hangs)
+    int failAcquireEvery = 0;     // test: every Nth acquire, the layer's submit "fails" (image must be given back)
     bool measure = false;         // measure_driver=1: time X-Plane's Vulkan calls into the driver (diagnostics)
     int intelOut = 0;             // Intel output: 0 auto (DXGI flip, else Vulkan), 1 DXGI only, 2 Vulkan only
     int bypassAfterNative = 0;    // 0: never return to the bypass once native output was shown on the window,
@@ -227,6 +229,8 @@ static void readIni() {
         else if (!_stricmp(k, "test_force_cpu_copy")) g_cfg.forceCpuCopy = iv != 0;
         else if (!_stricmp(k, "test_no_extra_queue")) g_cfg.noExtraQueue = iv != 0;
         else if (!_stricmp(k, "test_fail_intel_after")) g_cfg.failIntelAfter = iv > 0 ? iv : 0;
+        else if (!_stricmp(k, "test_hang_worker_after")) g_cfg.hangWorkerAfter = iv > 0 ? iv : 0;
+        else if (!_stricmp(k, "test_fail_acquire_submit_every")) g_cfg.failAcquireEvery = iv > 0 ? iv : 0;
         else if (!_stricmp(k, "measure_driver")) g_cfg.measure = iv != 0;
         else if (!_stricmp(k, "intel_output"))
             g_cfg.intelOut = !_stricmp(v, "dxgi") ? 1 : !_stricmp(v, "vulkan") ? 2 : 0;
@@ -284,10 +288,12 @@ static void initOnce() {
          "measure_driver=%d", XPOB_VERSION, XPOB_BUILD,
          g_cfg.mode == MODE_OFF ? "off" : g_cfg.mode == MODE_ON ? "on" : "auto", prefNames[g_cfg.path],
          g_cfg.probe ? 1 : 0, g_cfg.vsync ? 1 : 0, g_cfg.stats ? 1 : 0, g_cfg.measure ? 1 : 0);
-    if (g_cfg.forceBlit || g_cfg.forceCpuCopy || g_cfg.noExtraQueue || g_cfg.failIntelAfter || g_cfg.bypassAfterNative)
+    if (g_cfg.forceBlit || g_cfg.forceCpuCopy || g_cfg.noExtraQueue || g_cfg.failIntelAfter || g_cfg.bypassAfterNative ||
+        g_cfg.hangWorkerAfter || g_cfg.failAcquireEvery)
         logf("[diag] TEST SWITCHES: test_force_blit=%d test_force_cpu_copy=%d test_no_extra_queue=%d "
-             "test_fail_intel_after=%d test_bypass_after_native=%d", g_cfg.forceBlit, g_cfg.forceCpuCopy,
-             g_cfg.noExtraQueue, g_cfg.failIntelAfter, g_cfg.bypassAfterNative);
+             "test_fail_intel_after=%d test_bypass_after_native=%d test_hang_worker_after=%d "
+             "test_fail_acquire_submit_every=%d", g_cfg.forceBlit, g_cfg.forceCpuCopy, g_cfg.noExtraQueue,
+             g_cfg.failIntelAfter, g_cfg.bypassAfterNative, g_cfg.hangWorkerAfter, g_cfg.failAcquireEvery);
     char en[8] = {0};
     bool viaEnv = GetEnvironmentVariableA("XP_OPTIMUS_BYPASS_ENABLE", en, sizeof(en)) > 0;
     logf("started with XP_OPTIMUS_BYPASS_ENABLE=1 (dedicated launcher or launch option): %s", viaEnv ? "yes" : "no");
@@ -2384,6 +2390,15 @@ static void intelFailure(VSwap* s, const char* what, VkResult r) {
 
 static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemaphore>> waits) {
     DevData* d = s->d;
+    if (g_cfg.hangWorkerAfter) {  // test: behave like a driver call that never returns
+        static int jobs = 0;
+        if (++jobs == g_cfg.hangWorkerAfter) {
+            logf("[diag] test_hang_worker_after=%d: the worker now hangs forever (simulated driver call)",
+                 g_cfg.hangWorkerAfter);
+            setWStage(WS_GF_FENCE);
+            for (;;) Sleep(1000);
+        }
+    }
     IntelCtx* c = s->ic;
     VkDevice dev = d->device;
     uint32_t k = s->ring++ % VSwap::R;
@@ -2595,6 +2610,7 @@ static VkResult vAcquire(VSwap* s, uint64_t timeoutNs, VkSemaphore sem, VkFence 
     uint32_t i = 0;
     bool needWait = false;
     double waited = 0;
+    for (;;) {  // runs once, except when test_fail_acquire_submit_every retries after a simulated failure
     {
         std::unique_lock<std::mutex> lk(s->m);
         double w0 = nowMs();
@@ -2608,6 +2624,10 @@ static VkResult vAcquire(VSwap* s, uint64_t timeoutNs, VkSemaphore sem, VkFence 
                 if (s->v[j].state == 0) { i = j; found = true; break; }
             }
             if (found) break;
+            if (g_workerStuck || g_nvHung) {  // the images will never come back (see the watchdog)
+                g_xStage = XS_OUTSIDE;
+                return VK_ERROR_DEVICE_LOST;
+            }
             double left = forever ? 200.0 : limitMs - (nowMs() - w0);
             if (left <= 0) {  // as the spec says: nothing signaled, no image index returned
                 g_xStage = XS_OUTSIDE;
@@ -2632,7 +2652,11 @@ static VkResult vAcquire(VSwap* s, uint64_t timeoutNs, VkSemaphore sem, VkFence 
         si.signalSemaphoreCount = sem ? 1 : 0;
         si.pSignalSemaphores = &sem;
         VkResult r;
-        {
+        static uint64_t acquires = 0;
+        bool simulated = g_cfg.failAcquireEvery && ++acquires % (uint64_t)g_cfg.failAcquireEvery == 0;
+        if (simulated) {
+            r = VK_ERROR_OUT_OF_DEVICE_MEMORY;  // test: nothing submitted, as after a real failure
+        } else {
             std::lock_guard<std::mutex> lk(d->copyQLock);
             r = d->vkQueueSubmit(d->copyQueue, 1, &si, fence);
         }
@@ -2643,8 +2667,13 @@ static VkResult vAcquire(VSwap* s, uint64_t timeoutNs, VkSemaphore sem, VkFence 
                 s->v[i].copyPending = needWait;
             }
             s->cv.notify_all();
-            return r;
+            if (!simulated) return r;
+            static int told = 0;
+            if (told++ < 3) logf("[diag] test_fail_acquire_submit_every: simulated submit failure, image %u given back", i);
+            continue;  // test only: take an image again; a lost image would stall X-Plane after a few of these
         }
+    }
+    break;
     }
     *pIndex = i;
     std::lock_guard<std::mutex> lk(s->perf.m);
@@ -3149,8 +3178,22 @@ static void startWatchdog() {
         std::thread([] {
             int logged = 0;
             long long stallFrom = 0;
+            long long stageMs = 0;
+            int stuckTicks = 0;
             for (;;) {
                 Sleep(1000);
+                // The worker sits in one stage for 30 checks in a row: a driver call did not return (every wait the
+                // layer makes is limited to 10 s). Counted checks, so sleep / resume does not count.
+                long long sm = g_wStageMs.load();
+                if (g_wStage.load() != WS_IDLE && sm == stageMs) {
+                    if (++stuckTicks == 30 && !g_workerStuck.exchange(true))
+                        logf("[hang] worker thread stuck in \"%s\" for 30 s (a driver call did not return) -> treated "
+                             "as lost: X-Plane gets a lost device instead of waiting forever",
+                             kWStage[g_wStage.load()]);
+                } else {
+                    stageMs = sm;
+                    stuckTicks = 0;
+                }
                 long long last = g_lastFrameMs.load();
                 if (last == 0) continue;
                 double now = nowMs(), gap = now - (double)last;
@@ -3231,6 +3274,7 @@ static VkResult vPresent(VSwap* s, VkQueue queue, const VkPresentInfoKHR* pi) {
         g_xStage = XS_SWITCH;
         bool switched = switchPath(s, want, why);
         g_xStage = XS_PRESENT;
+        if (g_workerStuck || g_nvHung) return VK_ERROR_DEVICE_LOST;  // flush gave up: queue nothing more
         if (!switched && want == PATH_NATIVE && s->path == PATH_BYPASS && g_intelBroken &&
             !g_virtualBroken) {
             logf("cannot switch to the native path either -> asking X-Plane to recreate its swapchain");

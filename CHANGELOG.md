@@ -6,6 +6,8 @@
   in one stage; after 30 checks in a row (every wait the layer makes is limited to 10 s, so only a driver call that
   never returns gets there) the worker counts as lost, and an acquire that waits for an image returns
   `VK_ERROR_DEVICE_LOST`. Before, only a flush noticed a stuck worker, and an acquire could wait forever.
+- The worker marks itself idle after every job, so the watchdog cannot mistake a job that returned early (for
+  example the `test_fail_intel_after` branch) for a stuck worker (found in review).
 - vPresent checks for a lost worker right after a path switch gave up, so no job is queued on a worker that will never
   run it (found in review).
 - **Regression tests for the two failure paths:** `test_hang_worker_after=N` (the worker hangs forever, like a driver

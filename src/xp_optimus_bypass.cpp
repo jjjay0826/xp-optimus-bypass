@@ -556,6 +556,7 @@ private:
                 q_.pop_front();
             }
             fn();
+            setWStage(WS_IDLE);  // whatever path the job took: the watchdog must not see a finished job as stuck
             {
                 std::lock_guard<std::mutex> lk(m_);
                 ++finished_;
@@ -2514,6 +2515,7 @@ static void frameJob(VSwap* s, uint32_t i, std::shared_ptr<std::vector<VkSemapho
     if (g_cfg.failIntelAfter && s->bypassFrames == (uint64_t)g_cfg.failIntelAfter) {
         logf("[diag] test_fail_intel_after=%d: simulating an Intel device loss", g_cfg.failIntelAfter);
         intelFailure(s, "simulated (test switch)", VK_ERROR_DEVICE_LOST);
+        setWStage(WS_IDLE);
         return;
     }
     if (s->useDx) {

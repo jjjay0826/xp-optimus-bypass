@@ -15,7 +15,9 @@ NVIDIA 把畫面交給 Intel 螢幕的過程很慢，layer 改成自己把每一
 
 - Windows 10/11，X-Plane 12（Vulkan）在 NVIDIA GeForce 顯示卡上執行。
 - X-Plane 的螢幕由 Intel 內顯驅動：沒有 MUX 開關、或 MUX 設成混合模式的 Optimus 筆電。
-- 不適用桌機、獨顯直連模式、接在 NVIDIA 顯示卡上的螢幕、AMD 顯示卡、Linux 或 macOS；這些情況下 layer 不會啟用。
+- 理論上各代 Intel 內顯搭配各種 GeForce 都可以用；目前只實測過 10 代 UHD + GTX 1650。
+- 外接螢幕：接頭如果接在 Intel 內顯上，外接螢幕也能用 bypass；如果接在 NVIDIA 顯示卡上（電競筆電的 HDMI 常常是這樣），layer 會在那個螢幕上自動改用 NVIDIA 原本的輸出。
+- 不適用桌機、獨顯直連模式、AMD 顯示卡、Linux 或 macOS；這些情況下 layer 不會啟用。
 
 ## 安裝與使用
 

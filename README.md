@@ -16,8 +16,10 @@ laptop so far; testers with other laptops are very welcome.
 
 - Windows 10/11, X-Plane 12 (Vulkan) rendering on an NVIDIA GeForce GPU.
 - X-Plane's screen is driven by the Intel iGPU: an Optimus laptop without a MUX switch, or with the MUX in hybrid mode.
-- Not for desktops, dGPU-only mode, monitors plugged into the NVIDIA GPU, AMD GPUs, Linux or macOS. In those cases
-  the layer stays inactive.
+- Any Intel generation with any GeForce should work in principle; so far only 10th gen UHD + GTX 1650 is tested.
+- External monitors: if the port is wired to the Intel iGPU the bypass works there too; if it is wired to the NVIDIA
+  GPU (common for HDMI on gaming laptops), the layer switches to NVIDIA's normal output on that screen by itself.
+- Not for desktops, dGPU-only mode, AMD GPUs, Linux or macOS; there the layer stays inactive.
 
 ## Install and use
 

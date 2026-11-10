@@ -2890,9 +2890,13 @@ static std::string cacheKeyFor(VSwap* s) {
     DEVMODEW dm{};
     dm.dmSize = sizeof(dm);
     EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm);
-    snprintf(b, sizeof(b), "%s %s|%s %s|%lux%lu@%lu|%ux%u|%s", d->props.deviceName, dv, iname.c_str(), iv,
-             dm.dmPelsWidth, dm.dmPelsHeight, dm.dmDisplayFrequency, s->ext.width, s->ext.height,
-             g_cfg.forceCpuCopy ? "cpu" : "auto");
+    // Everything that changes what the two paths cost: a change measures again (older entries no longer match).
+    char mon[64];
+    snprintf(mon, sizeof(mon), "%ls", mi.szDevice);
+    snprintf(b, sizeof(b), "v%s|%s %s|%s %s|%s %lux%lu@%lu|%ux%u fmt%d/%d|%s|vsync%d|out%d %s", XPOB_VERSION,
+             d->props.deviceName, dv, iname.c_str(), iv, mon, dm.dmPelsWidth, dm.dmPelsHeight,
+             dm.dmDisplayFrequency, s->ext.width, s->ext.height, (int)s->ci.imageFormat, (int)s->ci.imageColorSpace,
+             g_cfg.forceCpuCopy ? "cpu" : "auto", g_cfg.vsync ? 1 : 0, g_cfg.intelOut, s->useDx ? "dxgi" : "vk");
     return b;
 }
 
@@ -2908,7 +2912,8 @@ static void decide(VSwap* s, double now) {
     if (s->bypassTried && !s->bypassOk) { g_sess.want = PATH_NATIVE; g_sess.probe = PROBE_DONE; }
     HMONITOR m = MonitorFromWindow(s->hwnd, MONITOR_DEFAULTTONEAREST);
     bool onIntel = g_sess.onIntel;
-    if (m != g_sess.lastMon || now - g_sess.lastDxgi > 5000.0) {
+    // While a screen change is pending, look again every check: it only counts when seen twice in a row.
+    if (m != g_sess.lastMon || now - g_sess.lastDxgi > 5000.0 || g_sess.pendingOnIntel >= 0) {
         onIntel = windowOnIntel(s->hwnd);
         g_sess.lastDxgi = now;
         g_sess.lastMon = m;
@@ -3008,8 +3013,11 @@ static void probeWindow(VSwap* s, double p50, double p95, double maxv) {
                 g_sess.want = PATH_BYPASS;
                 return;
             }
-            logf("probe: results stayed inconsistent -> keeping the bypass, not saving a result");
-            g_sess.want = PATH_BYPASS;
+            // Inconsistent, but if the bypass was slower than native in every run, do not keep it.
+            bool bypassSlower = std::min(g_sess.p50[1], g_sess.p50[3]) > std::max(g_sess.p50[0], g_sess.p50[2]);
+            logf("probe: results stayed inconsistent -> keeping %s, not saving a result",
+                 bypassSlower ? "native (the bypass was slower in every run)" : "the bypass");
+            g_sess.want = bypassSlower ? PATH_NATIVE : PATH_BYPASS;
             g_sess.probe = PROBE_DONE;
             g_sess.lastProbe = now;
             g_sess.baseP95 = 0;

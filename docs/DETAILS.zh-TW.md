@@ -54,7 +54,7 @@ ACTIVE: X-Plane ... -> GeForce -> host memory -> Intel -> screen
 | `vsync` | `0`：預設，不限 FPS，可能畫面撕裂；`1`：垂直同步 |
 | `stats` | `1`：預設，每 300 幀記錄 FPS 和時間；`0`：不記錄 |
 | `path` | `auto`：預設，視窗在 Intel 接的螢幕時用 bypass（依實測結果），否則用 native；`bypass`／`native`：強制其中一條；`cpu-copy`：bypass 加 CPU 複製（測試用） |
-| `probe` | `1`：預設，每種配置實測比較一次並保留較快的（需要 DXGI 輸出）；`0`：在 Intel 螢幕上一律用 bypass。刪掉 `xpob_path_cache.txt` 可重新比較 |
+| `probe` | `1`：預設，每種配置實測比較一次並保留較快的（需要 DXGI 輸出）；`0`：在 Intel 螢幕上一律用 bypass。更新 layer 版本，或換螢幕、解析度、`vsync`、`intel_output` 時會自動重新比較；刪掉 `xpob_path_cache.txt` 可強制重新比較 |
 | `intel_output` | `auto`：預設，Intel 透過 DXGI flip 模式（D3D12）輸出，不行才用 Vulkan；`dxgi`；`vulkan`：0.9.2 的做法（同一個視窗用過 native 之後無法切回 bypass） |
 | `measure_driver` | `1`：記錄 X-Plane 主執行緒每幀在驅動裡各類呼叫花的時間（`[drv]`，診斷用）；預設 `0` |
 | `test_*` | 測試開關，平常設 `0`：`test_force_blit`、`test_force_cpu_copy`、`test_no_extra_queue`、`test_fail_intel_after=N`（N 幀後模擬 Intel 出錯）、`test_bypass_after_native`、`test_hang_worker_after=N`（第 N 幀時背景執行緒永遠卡住）、`test_fail_acquire_submit_every=N`（每 N 次 acquire 模擬一次送出失敗） |

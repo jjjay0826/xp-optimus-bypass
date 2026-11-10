@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased (dev-probe-fix, not tested on hardware yet)
+
+- **Moving the window to another screen now switches the path:** a screen change has to be seen twice in a row, but
+  the second check reused the old answer instead of looking again, so the change was never confirmed (found in an
+  outside review, reproduced with its test harness; only matters with more than one screen).
+- If the probe's results stay inconsistent but the bypass was slower than native in every run, native is kept
+  instead of the bypass (still not saved).
+- The probe's saved result is tied to the layer version, the screen, the X-Plane image format, `vsync` and the Intel
+  output, so changing any of them measures again. Older saved results are measured again once.
+- README: SDR only (the bypass does not carry HDR).
+
 ## 0.9.3.2 — 2026-11-06 (updated 2026-11-07)
 
 - **A stuck worker no longer freezes X-Plane in vkAcquireNextImageKHR:** the watchdog counts how long the worker stays

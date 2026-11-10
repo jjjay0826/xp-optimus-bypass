@@ -50,7 +50,8 @@ X-Plane 關閉後，啟動器會送出一份小回報：顯示卡型號、驅動
 ## 問題與限制
 
 - layer 裡每個等待都有時間上限；Intel 端出錯時會改用 NVIDIA 原本的輸出，X-Plane 繼續運作。驅動卡死時 X-Plane 會收到錯誤，而不是一直卡住。
-- 還沒測過：其他筆電、外接或多螢幕、HDR、VR、全域模式。已知限制見[詳細說明](docs/DETAILS.zh-TW.md#相容性注意事項與回報問題)。
+- 只支援 SDR：bypass 不支援 HDR（X-Plane 可能只會看到 SDR 格式）。
+- 還沒測過：其他筆電、外接或多螢幕、VR、全域模式。已知限制見[詳細說明](docs/DETAILS.zh-TW.md#相容性注意事項與回報問題)。
 - 有問題請到 [GitHub Issues](https://github.com/jjjay0826/xp-optimus-bypass/issues)，附上筆電型號和 `xp_optimus_bypass.log`（管理視窗 → **紀錄與說明** → **產生回報** 可以複製整理好的回報）。
 - DLL 沒有數位簽章：[如何驗證下載檔](docs/DETAILS.zh-TW.md#驗證下載)。
 

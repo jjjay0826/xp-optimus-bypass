@@ -56,7 +56,8 @@ default; switch it off or see the exact content in the manager. Public results:
 
 - Every wait in the layer has a time limit; if the Intel side fails it falls back to NVIDIA's normal output and
   X-Plane keeps running. A stuck driver gives X-Plane a lost-device error instead of a freeze.
-- Not tested yet: other laptops, external / multiple monitors, HDR, VR, Global mode. Known limits:
+- SDR only: the bypass does not carry HDR (X-Plane may be offered SDR formats only).
+- Not tested yet: other laptops, external / multiple monitors, VR, Global mode. Known limits:
   [Details](docs/DETAILS.md#compatibility-notes-and-reporting-issues).
 - Report problems on [GitHub Issues](https://github.com/jjjay0826/xp-optimus-bypass/issues) with your laptop model and
   `xp_optimus_bypass.log` (manager → **Logs / Readme** → **Report** copies a ready-made report).

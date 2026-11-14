@@ -1241,6 +1241,7 @@ struct Session {
     double probeStart = 0;
     int rounds = 0;           // probe rounds discarded because the two runs of a path disagreed
     double firstFrame = 0;
+    bool hidden = false;      // since the last 300-frame window: window minimized, or a frame could not be shown
     std::string cacheKey;
 };
 static Session g_sess;
@@ -2714,11 +2715,13 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
         s->nRecreate = false;
         if (!createNativeSwapchain(s)) {
             dropFrame(s, queue, i, pi);
+            g_sess.hidden = true;
             return s->nativeWhyNot.empty() ? VK_SUCCESS : VK_ERROR_SURFACE_LOST_KHR;
         }
     }
     if (!s->nswap && !createNativeSwapchain(s)) {
         dropFrame(s, queue, i, pi);
+        g_sess.hidden = true;  // not shown: this frame's time says nothing about the native path
         return s->nativeWhyNot.empty() ? VK_SUCCESS : VK_ERROR_SURFACE_LOST_KHR;  // minimized: skip
     }
     uint32_t k = s->nRing++ % VSwap::R;
@@ -2744,6 +2747,7 @@ static VkResult nativePresent(VSwap* s, VkQueue queue, uint32_t i, const VkPrese
     if (ar == VK_ERROR_OUT_OF_DATE_KHR) {
         if (!createNativeSwapchain(s)) {
             dropFrame(s, queue, i, pi);
+            g_sess.hidden = true;
             return s->nativeWhyNot.empty() ? VK_SUCCESS : VK_ERROR_SURFACE_LOST_KHR;
         }
         ar = nvAcquire(d, s->nswap, s->nAcq[k], &ri);
@@ -2904,6 +2908,7 @@ static std::string cacheKeyFor(VSwap* s) {
 static void decide(VSwap* s, double now) {
     if (now - g_sess.lastCheck < 1000.0) return;
     g_sess.lastCheck = now;
+    if (IsIconic(s->hwnd)) g_sess.hidden = true;
     if (g_cfg.mode == MODE_ON || g_cfg.path == PREF_BYPASS || g_cfg.path == PREF_CPU_COPY) {
         if (!g_intelBroken) g_sess.want = PATH_BYPASS;
         return;
@@ -2962,6 +2967,20 @@ static void probeWindow(VSwap* s, double p50, double p95, double maxv) {
     double now = nowMs();
     if ((s->bypassTried && !s->bypassOk) || g_intelBroken) {
         if (g_sess.probe == PROBE_RUN || g_sess.probe == PROBE_WAIT_STABLE) g_sess.probe = PROBE_DONE;
+        return;
+    }
+    // Minimized window: native frames are skipped and nothing reaches the screen, so the times mean nothing.
+    bool hidden = g_sess.hidden || IsIconic(s->hwnd);
+    g_sess.hidden = false;
+    if (hidden) {
+        if (g_sess.probe == PROBE_RUN) {
+            logf("probe: X-Plane's window was minimized during the measurement -> measuring again later");
+            g_sess.probe = PROBE_WAIT_STABLE;
+            g_sess.stableTries = 0;
+            g_sess.want = PATH_BYPASS;
+        }
+        g_sess.prevP50 = 0;
+        g_sess.bad = 0;
         return;
     }
     if (g_sess.probe == PROBE_WAIT_STABLE) {

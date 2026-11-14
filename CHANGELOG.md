@@ -2,6 +2,7 @@
 
 ## Unreleased (dev-probe-fix, not tested on hardware yet)
 
+- Probe: a measurement made while X-Plane's window is minimized is discarded. Before, the native runs showed nothing, looked as fast as the bypass, and native was chosen (half the frame rate on the test laptop).
 - **Moving the window to another screen now switches the path:** a screen change has to be seen twice in a row, but
   the second check reused the old answer instead of looking again, so the change was never confirmed (found in an
   outside review, reproduced with its test harness; only matters with more than one screen).
